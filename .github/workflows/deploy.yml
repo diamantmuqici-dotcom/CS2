@@ -35,9 +35,13 @@ jobs:
         # The site was previously published with build_type "legacy" (branch +
         # path "/"), which serves the raw repository and shipped an unbuilt
         # index.html. Switch it to the Actions source so `dist/` is what gets
-        # published. Idempotent. If this cannot be changed automatically the
-        # job fails loudly rather than letting a legacy build silently
-        # overwrite the good deployment on the next push.
+        # published. Idempotent.
+        #
+        # This does NOT fail the job: a repository admin has to grant the
+        # workflow token admin rights for this to succeed, and blocking the
+        # deploy on it would freeze the site. A loud warning is emitted
+        # instead, and the "Deploy after the legacy build" step below makes
+        # the deployment order deterministic in the meantime.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -48,14 +52,11 @@ jobs:
             exit 0
           fi
           echo "Switching Pages build_type from '${current}' to 'workflow'…"
-          gh api -X PUT "repos/${GITHUB_REPOSITORY}/pages" \
-            -f build_type=workflow \
-            --jq '.build_type'
+          gh api -X PUT "repos/${GITHUB_REPOSITORY}/pages" -f build_type=workflow --jq '.build_type' || true
           after=$(gh api "repos/${GITHUB_REPOSITORY}/pages" --jq '.build_type')
           echo "Pages build_type is now: ${after}"
           if [ "$after" != "workflow" ]; then
-            echo "::error::Could not switch Pages to the GitHub Actions source. While it stays on 'legacy', the legacy Pages build will overwrite dist/ with the raw repository on every push. Set Settings > Pages > Build and deployment > Source to 'GitHub Actions' in the repository settings."
-            exit 1
+            echo "::warning title=Pages still on the legacy source::Pages is still publishing the RAW repository from main/path '/', which serves an unbuilt index.html and re-breaks the site whenever the legacy build wins the race. Fix once in Settings > Pages > Build and deployment > Source > GitHub Actions. This workflow still deploys correctly and now waits for the legacy build to finish first."
           fi
 
       - name: Setup Node
@@ -112,6 +113,62 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Wait for any legacy Pages build to finish
+        # While Pages is still configured with build_type "legacy", GitHub runs
+        # its own `pages-build-deployment` workflow from the repository root on
+        # every push to main. Both publish to the same Pages site, so whichever
+        # finishes last wins — and the legacy one publishes the raw source,
+        # which is the outage this project is fixing.
+        #
+        # Waiting for it to finish first makes this workflow's deployment
+        # deterministically the last write, so the site stays correct even
+        # before an admin switches the source to GitHub Actions.
+        if: ${{ always() && needs.build.result == 'success' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for attempt in $(seq 1 30); do
+            running=$(gh run list --workflow "pages-build-deployment" --branch main \
+              --status in_progress --json databaseId -q 'length' 2>/dev/null || echo 0)
+            queued=$(gh run list --workflow "pages-build-deployment" --branch main \
+              --status queued --json databaseId -q 'length' 2>/dev/null || echo 0)
+            if [ "$running" = "0" ] && [ "$queued" = "0" ]; then
+              echo "No legacy Pages build is in flight (attempt ${attempt}). Deploying now."
+              exit 0
+            fi
+            echo "Legacy Pages build still running (${running} running, ${queued} queued). Waiting…"
+            sleep 10
+          done
+          echo "::warning::A legacy Pages build was still running after 5 minutes; deploying anyway."
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Verify the live site serves the built application
+        # The original outage is precisely "Pages served something that is not
+        # the built app". Assert the live document references a hashed bundle
+        # rather than the untranspiled /src/main.tsx entry.
+        run: |
+          url="${{ steps.deployment.outputs.page_url }}"
+          for attempt in $(seq 1 12); do
+            html=$(curl -fsSL --max-time 20 "$url" 2>/dev/null || true)
+            if [ -z "$html" ]; then
+              echo "Attempt ${attempt}: no response yet from ${url}"
+              sleep 10
+              continue
+            fi
+            if echo "$html" | grep -qE 'src="\./assets/index-[^"]+\.js"'; then
+              echo "OK: live site is serving the built application."
+              echo "$html" | grep -oE '(src|href)="[^"]*"' | head -5
+              exit 0
+            fi
+            if echo "$html" | grep -q '/src/main.tsx'; then
+              echo "::error::The live site is serving the RAW SOURCE (unbuilt index.html). Pages is still configured with the legacy source. Set Settings > Pages > Build and deployment > Source to 'GitHub Actions'."
+              exit 1
+            fi
+            echo "Attempt ${attempt}: live document did not match the expected build yet; retrying…"
+            sleep 10
+          done
+          echo "::error::Could not confirm the live deployment at ${url}."
+          exit 1
