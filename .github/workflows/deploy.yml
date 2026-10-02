@@ -33,20 +33,29 @@ jobs:
 
       - name: Ensure Pages is configured to build from this workflow
         # The site was previously published with build_type "legacy" (branch +
-        # path "/"), which served the raw repository and shipped an unbuilt
+        # path "/"), which serves the raw repository and shipped an unbuilt
         # index.html. Switch it to the Actions source so `dist/` is what gets
-        # published. This is idempotent and safe to re-run.
+        # published. Idempotent. If this cannot be changed automatically the
+        # job fails loudly rather than letting a legacy build silently
+        # overwrite the good deployment on the next push.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          current=$(gh api "repos/${GITHUB_REPOSITORY}/pages" --jq '.build_type' 2>/dev/null || echo "unknown")
+          current=$(gh api "repos/${GITHUB_REPOSITORY}/pages" --jq '.build_type')
           echo "Current Pages build_type: ${current}"
-          if [ "$current" != "workflow" ]; then
-            gh api -X PUT "repos/${GITHUB_REPOSITORY}/pages" -f build_type=workflow \
-              --jq '"Updated build_type to \(.build_type)"' \
-              || echo "::warning::Could not update the Pages build type automatically. Set Settings > Pages > Build and deployment > Source to 'GitHub Actions'."
-          else
+          if [ "$current" = "workflow" ]; then
             echo "Already configured for the GitHub Actions source."
+            exit 0
+          fi
+          echo "Switching Pages build_type from '${current}' to 'workflow'…"
+          gh api -X PUT "repos/${GITHUB_REPOSITORY}/pages" \
+            -f build_type=workflow \
+            --jq '.build_type'
+          after=$(gh api "repos/${GITHUB_REPOSITORY}/pages" --jq '.build_type')
+          echo "Pages build_type is now: ${after}"
+          if [ "$after" != "workflow" ]; then
+            echo "::error::Could not switch Pages to the GitHub Actions source. While it stays on 'legacy', the legacy Pages build will overwrite dist/ with the raw repository on every push. Set Settings > Pages > Build and deployment > Source to 'GitHub Actions' in the repository settings."
+            exit 1
           fi
 
       - name: Setup Node
