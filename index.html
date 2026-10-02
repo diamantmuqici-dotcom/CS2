@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#090c10" />
+    <meta
+      name="description"
+      content="Vanguard Protocol — a browser-based competitive tactical FPS platform with an original 3D engine, authoritative multiplayer architecture, workshop, and map editor."
+    />
+    <title>Vanguard Protocol — Tactical FPS Platform</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #090c10;
+      }
+      #boot-splash {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(circle at 50% 40%, #101820 0%, #090c10 70%);
+        font-family: 'Inter', system-ui, sans-serif;
+        color: #94a3b8;
+        z-index: 9999;
+        transition: opacity 0.35s ease;
+      }
+      #boot-splash.hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #boot-splash .mark {
+        font-size: 22px;
+        font-weight: 900;
+        letter-spacing: 0.3em;
+        color: #ffffff;
+        text-transform: uppercase;
+      }
+      #boot-splash .mark span {
+        color: #06b6d4;
+      }
+      #boot-splash .sub {
+        margin-top: 8px;
+        font-size: 10px;
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        color: #475569;
+      }
+      #boot-splash .bar {
+        margin-top: 22px;
+        width: 220px;
+        height: 3px;
+        border-radius: 9999px;
+        background: #1e293b;
+        overflow: hidden;
+      }
+      #boot-splash .bar > i {
+        display: block;
+        height: 100%;
+        width: 40%;
+        background: linear-gradient(90deg, #06b6d4, #22d3ee);
+        animation: slide 1.1s ease-in-out infinite;
+      }
+      @keyframes slide {
+        0% {
+          transform: translateX(-100%);
+        }
+        100% {
+          transform: translateX(350%);
+        }
+      }
+      #boot-error {
+        display: none;
+        max-width: 560px;
+        padding: 24px;
+        text-align: center;
+        font-size: 13px;
+        line-height: 1.6;
+        color: #fca5a5;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="boot-splash">
+      <div class="mark">Vanguard <span>Protocol</span></div>
+      <div class="sub">Initializing tactical systems…</div>
+      <div class="bar"><i></i></div>
+      <div id="boot-error">
+        <strong>Failed to start.</strong><br />
+        This application requires a modern browser with WebGL2 and JavaScript modules enabled. If you are using an
+        unsupported browser or have hardware acceleration disabled, enable it and reload the page.
+      </div>
+    </div>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    <script>
+      // Hide the boot splash once React has mounted, or surface a fatal boot error.
+      (function () {
+        var splash = document.getElementById('boot-splash');
+        var errorBox = document.getElementById('boot-error');
+        var attempts = 0;
+        var timer = setInterval(function () {
+          attempts++;
+          var root = document.getElementById('root');
+          if (root && root.children.length > 0) {
+            clearInterval(timer);
+            splash.classList.add('hidden');
+            setTimeout(function () {
+              splash.style.display = 'none';
+            }, 400);
+          } else if (attempts > 90) {
+            clearInterval(timer);
+            errorBox.style.display = 'block';
+          }
+        }, 150);
+
+        window.addEventListener('error', function (e) {
+          if (!e || !e.message) return;
+          if (!window.__vanguardBootErrorShown) {
+            window.__vanguardBootErrorShown = true;
+            errorBox.style.display = 'block';
+            errorBox.innerHTML =
+              '<strong>Boot error:</strong><br />' + String(e.message) + '<br /><br />Check the browser console for details.';
+          }
+        });
+
+        // WebGL2 capability gate — fail loudly rather than showing a broken renderer.
+        try {
+          var testCanvas = document.createElement('canvas');
+          var gl = testCanvas.getContext('webgl2');
+          if (!gl) {
+            errorBox.style.display = 'block';
+            errorBox.innerHTML =
+              '<strong>WebGL2 Unavailable</strong><br />Vanguard Protocol requires GPU-accelerated WebGL2 rendering. ' +
+              'Enable hardware acceleration in your browser settings (chrome://settings/system, edge://settings/system) and reload.';
+          }
+        } catch (err) {
+          errorBox.style.display = 'block';
+        }
+      })();
+    </script>
+  </body>
+</html>
