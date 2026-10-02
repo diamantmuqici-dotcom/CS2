@@ -259,7 +259,7 @@ export function getModeConfig(mode: GameModeId): {
       };
     case 'Rush':
       return {
-        teamSize: 4,
+        teamSize: 3,
         maxRounds: 12,
         roundTimeSec: 75,
         buyTimeSec: 8,

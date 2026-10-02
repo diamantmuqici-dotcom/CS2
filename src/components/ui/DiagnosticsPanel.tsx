@@ -54,7 +54,7 @@ export const DiagnosticsPanel: React.FC = () => {
 
   const copyReport = async () => {
     const text = [
-      'Vanguard Protocol — local diagnostics',
+      'CSGO — local diagnostics',
       `URL: ${location.href}`,
       `Deploy base: ${getDeployBase()}`,
       `Renderer: ${selection.tier}`,
@@ -65,6 +65,7 @@ export const DiagnosticsPanel: React.FC = () => {
       `Max texture: ${(caps.webgl2.ok ? caps.webgl2 : caps.webgl1).maxTextureSize}`,
       `Extensions: ${(caps.webgl2.ok ? caps.webgl2 : caps.webgl1).extensions.length}`,
       `FPS: ${telemetry.fps}`,
+      `Diagnostic ID: ${report.diagnosticId}`,
       `Boot: ${report.durationMs}ms`,
       ...report.failures.map((f) => `FAILURE: ${f}`)
     ].join('\n');
@@ -96,6 +97,12 @@ export const DiagnosticsPanel: React.FC = () => {
         All values below are measured locally in your browser. Nothing is uploaded and no personal
         information is collected.
       </p>
+
+      <Group title="Startup">
+        <Row k="Diagnostic ID" v={report.diagnosticId} />
+        <Row k="Status" v={report.ready ? 'Ready' : report.failures.length ? 'Degraded' : 'Starting'} tone={report.ready ? 'ok' : report.failures.length ? 'bad' : 'warn'} />
+        <Row k="Boot duration" v={`${report.durationMs}ms`} />
+      </Group>
 
       <Group title="Browser">
         <Row k="Browser" v={`${caps.browserName} ${caps.browserVersion}`} />

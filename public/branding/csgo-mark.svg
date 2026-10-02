@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 120" role="img" aria-labelledby="title desc">
+  <title id="title">CSGO</title><desc id="desc">Original angular CSGO wordmark with a signal chevron.</desc>
+  <rect width="420" height="120" fill="none"/>
+  <path d="M24 18h56l22 42-22 42H24l21-42z" fill="#e7a83b"/>
+  <path d="M44 38h27l10 22-10 22H44l10-22z" fill="#101317"/>
+  <path d="M124 18h54v18h-34v48h34v18h-54zM190 18h55v18h-35v14h31v18h-31v16h35v18h-55zM259 18h54c15 0 25 9 25 24v36c0 15-10 24-25 24h-54zm22 18v48h27c5 0 8-3 8-8V44c0-5-3-8-8-8zM351 18h45c15 0 24 9 24 24v36c0 15-9 24-24 24h-45zm22 18v48h21c4 0 7-3 7-8V44c0-5-3-8-7-8z" fill="#f4f5f6"/>
+  <path d="M124 103h272" stroke="#e7a83b" stroke-width="4" opacity=".8"/>
+</svg>

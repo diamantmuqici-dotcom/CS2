@@ -73,6 +73,9 @@ export const ProfilePanel: React.FC = () => {
               {profile.competitiveRank} · Premier Rating{' '}
               <span className="font-mono font-bold text-cyan-400">{profile.premierRating.toLocaleString()}</span>
             </div>
+            <div className="mt-1 font-mono text-[9px] uppercase tracking-[0.14em] text-slate-600">
+              CSGO PLAYER ID · {profile.id.slice(0, 8).toUpperCase()} · IMMUTABLE
+            </div>
             <div className="mt-2 h-1.5 w-full max-w-md overflow-hidden rounded-full bg-slate-800">
               <div
                 className="h-full bg-gradient-to-r from-cyan-500 to-emerald-400"

@@ -258,7 +258,7 @@ export const GameView: React.FC<GameViewProps> = ({ onExit, onMatchComplete }) =
         </p>
         {isRendererFailure && (
           <p className="mb-6 max-w-xl text-[12px] leading-relaxed text-slate-500">
-            Vanguard Protocol ships a compatibility renderer that runs the same match on a 2D tactical
+            CSGO ships a compatibility renderer that runs the same match on a 2D tactical
             view. The score, rounds, economy and bots are all identical — only the view differs.
           </p>
         )}

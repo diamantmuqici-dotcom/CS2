@@ -19,6 +19,7 @@ import { Panel, Button, StatChip, Tabs, SelectRow } from '../ui/primitives';
 import { validateWorkshopPackage } from '../../shared/security';
 import { soundEngine } from '../../game/audio/soundEngine';
 import { GameMapDefinition } from '../../shared/types';
+import { apiUrl } from '../../shared/runtime';
 
 type WorkshopTab = 'BROWSE' | 'UPLOAD' | 'MY_MAPS' | 'SUBSCRIPTIONS' | 'RATINGS' | 'STATS';
 
@@ -42,6 +43,7 @@ export const WorkshopPanel: React.FC<{ onTestMap: (mapId: string) => void }> = (
   const [uploadText, setUploadText] = useState('');
   const [validationResult, setValidationResult] = useState<ReturnType<typeof validateWorkshopPackage> | null>(null);
   const [serverResult, setServerResult] = useState<string | null>(null);
+  const [serverValidated, setServerValidated] = useState(false);
   const [uploadTitle, setUploadTitle] = useState('');
 
   const filtered = useMemo(() => {
@@ -76,6 +78,8 @@ export const WorkshopPanel: React.FC<{ onTestMap: (mapId: string) => void }> = (
   const subscriptions = workshopMaps.filter((m) => m.isSubscribed);
 
   const handleValidate = async () => {
+    setServerValidated(false);
+    setServerResult(null);
     let parsed: unknown;
     try {
       parsed = JSON.parse(uploadText);
@@ -97,13 +101,14 @@ export const WorkshopPanel: React.FC<{ onTestMap: (mapId: string) => void }> = (
 
     // 2. Server-side ruleset validation via the authoritative backend
     try {
-      const res = await fetch('/api/workshop/validate', {
+      const res = await fetch(apiUrl('api/workshop/validate'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(local.sanitizedMap)
       });
       const data = await res.json();
       if (data.valid) {
+        setServerValidated(true);
         setServerResult(`Server validation PASSED — ${data.packageSizeBytes} bytes accepted.`);
       } else {
         setServerResult(`Server rejected package: ${(data.errors || []).join('; ')}`);
@@ -114,7 +119,7 @@ export const WorkshopPanel: React.FC<{ onTestMap: (mapId: string) => void }> = (
   };
 
   const handlePublish = () => {
-    if (!validationResult?.valid || !validationResult.sanitizedMap) return;
+    if (!serverValidated || !validationResult?.valid || !validationResult.sanitizedMap) return;
     const map = validationResult.sanitizedMap;
     const result = publishWorkshopMap(map, uploadTitle || 'Initial community publication');
     appendConsoleLog(`[WORKSHOP] ${result.message}`);
@@ -299,7 +304,7 @@ export const WorkshopPanel: React.FC<{ onTestMap: (mapId: string) => void }> = (
                   <Button
                     variant="success"
                     size="sm"
-                    disabled={!validationResult?.valid}
+                    disabled={!serverValidated || !validationResult?.valid}
                     onClick={handlePublish}
                   >
                     <UploadCloud className="h-3 w-3" /> PUBLISH TO WORKSHOP

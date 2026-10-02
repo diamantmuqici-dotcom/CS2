@@ -42,6 +42,7 @@ export interface BootStage {
 }
 
 export interface BootReport {
+  diagnosticId: string;
   startedAt: number;
   finishedAt: number | null;
   durationMs: number;
@@ -78,6 +79,7 @@ const STAGE_ORDER: BootStageId[] = [
 
 class BootDiagnostics {
   private startedAt = typeof performance !== 'undefined' ? performance.now() : 0;
+  private readonly diagnosticId = `BOOT-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
   private finishedAt: number | null = null;
   private stages = new Map<BootStageId, BootStage>();
   private stageStartedAt = new Map<BootStageId, number>();
@@ -168,6 +170,7 @@ class BootDiagnostics {
     const end = this.finishedAt ?? this.stamp();
 
     return {
+      diagnosticId: this.diagnosticId,
       startedAt: this.startedAt,
       finishedAt: this.finishedAt,
       durationMs: Number((end - this.startedAt).toFixed(2)),
