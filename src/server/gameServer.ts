@@ -12,6 +12,7 @@ import {
 } from '../shared/security';
 import { WEAPON_SPECS, calculateWeaponDamage } from '../shared/weapons';
 import { OFFICIAL_MAPS } from '../game/maps/officialMaps';
+import type { GameModeId, RegionId } from '../shared/types';
 
 export interface ServerSessionClient {
   id: string;
@@ -265,13 +266,50 @@ export class AuthoritativeGameServer {
     );
     return {
       status: 'online',
-      service: 'Vanguard Protocol Authoritative Server',
+      service: 'CSGO Authoritative Server',
       tickRate: this.tickRate,
       currentTick: this.serverTick,
       connectedClients: this.clients.size,
       antiCheatActive: true,
       antiCheatViolations: totalViolations,
       workshopMapCount: this.workshopStore.length
+    };
+  }
+
+  /**
+   * Allocates a verified match ticket for the HTTP matchmaking boundary.
+   * The ticket is intentionally server-created; the browser never chooses a
+   * server endpoint or match identifier. A production deployment can replace
+   * the in-process allocator with a fleet/queue service without changing the
+   * client contract.
+   */
+  public allocateMatch(payload: unknown) {
+    const request = payload as Partial<{ mode: GameModeId; mapId: string; region: RegionId; partySize: number; rating: number; clientVersion: string }> | null;
+    const modes: GameModeId[] = ['Competitive', 'Premier', 'Wingman', 'Rush', 'Casual', 'Deathmatch', 'Retakes', 'Practice', 'Custom'];
+    const regions: RegionId[] = ['EU', 'NA', 'SA', 'Asia', 'Oceania', 'Middle East', 'Africa'];
+    if (!request || !modes.includes(request.mode as GameModeId) || !regions.includes(request.region as RegionId)) {
+      return { ok: false, error: { code: 'MATCHMAKING_INVALID_REQUEST', message: 'The queue request could not be validated.', retryable: false } };
+    }
+    const mapId = String(request.mapId || '');
+    if (!OFFICIAL_MAPS[mapId] && !mapId.startsWith('ws_')) {
+      return { ok: false, error: { code: 'MATCHMAKING_MAP_UNAVAILABLE', message: 'That map is not available on the selected server.', retryable: false } };
+    }
+    const mode = request.mode as GameModeId;
+    const tickRate = mode === 'Premier' || mode === 'Competitive' ? 128 : 64;
+    const now = Date.now();
+    return {
+      ok: true,
+      matchId: `srv_${now.toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+      serverId: `authority-${String(request.region).toLowerCase()}-01`,
+      endpoint: 'ws://authoritative-session.internal/ws',
+      region: request.region,
+      mode,
+      mapId,
+      tickRate,
+      playerSlots: Math.max(2, Math.min(10, Number(request.partySize) || 1)),
+      issuedAt: now,
+      expiresAt: now + 60_000,
+      source: 'SERVER' as const
     };
   }
 

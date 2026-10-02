@@ -19,7 +19,9 @@ const DIFFICULTY_PARAMS: Record<
   Easy: { reactionDelaySec: 0.68, aimSpreadRad: 0.095, fireIntervalMultiplier: 2.1, headshotChance: 0.08 },
   Normal: { reactionDelaySec: 0.42, aimSpreadRad: 0.055, fireIntervalMultiplier: 1.45, headshotChance: 0.18 },
   Hard: { reactionDelaySec: 0.24, aimSpreadRad: 0.028, fireIntervalMultiplier: 1.15, headshotChance: 0.34 },
-  Expert: { reactionDelaySec: 0.14, aimSpreadRad: 0.014, fireIntervalMultiplier: 1.0, headshotChance: 0.52 }
+  Expert: { reactionDelaySec: 0.14, aimSpreadRad: 0.014, fireIntervalMultiplier: 1.0, headshotChance: 0.52 },
+  'Very Hard': { reactionDelaySec: 0.18, aimSpreadRad: 0.020, fireIntervalMultiplier: 1.05, headshotChance: 0.44 },
+  Extreme: { reactionDelaySec: 0.14, aimSpreadRad: 0.014, fireIntervalMultiplier: 1.0, headshotChance: 0.52 }
 };
 
 export const BOT_CALLSIGNS: Record<'SENTINEL' | 'VORTEX', string[]> = {

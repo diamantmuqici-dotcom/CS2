@@ -21,6 +21,8 @@ import { OFFICIAL_MAPS } from '../../game/maps/officialMaps';
 import { getModeConfig } from '../../game/modes/roundLogic';
 import { Panel, Button, StatChip, Tabs } from '../ui/primitives';
 import { soundEngine } from '../../game/audio/soundEngine';
+import { matchmakingService } from '../../game/matchmaking/MatchmakingService';
+import type { QueueStatus } from '../../game/matchmaking/matchmakingTypes';
 
 const MODE_ICONS: Record<GameModeId, React.ReactNode> = {
   Competitive: <Swords className="h-5 w-5" />,
@@ -57,6 +59,7 @@ export const PlayPanel: React.FC<{ onLaunch: () => void }> = ({ onLaunch }) => {
     queueState,
     startQueue,
     cancelQueue,
+    profile,
     premierVeto,
     banPremierMap,
     customConfig,
@@ -65,28 +68,32 @@ export const PlayPanel: React.FC<{ onLaunch: () => void }> = ({ onLaunch }) => {
   } = useGamePlatformStore();
 
   const [subTab, setSubTab] = useState<'MODES' | 'MAPS' | 'REGIONS' | 'CUSTOM'>('MODES');
-  const [queueElapsed, setQueueElapsed] = useState(0);
+  const [queueStatus, setQueueStatus] = useState<QueueStatus>(matchmakingService.getStatus());
+
+  useEffect(() => matchmakingService.subscribe(setQueueStatus), []);
+
+  // QueueService owns the lifecycle. A development build may use the explicit
+  // local-authority adapter; production requests a real server allocation.
+  // There is intentionally no client-side timeout that pretends a match exists.
+  useEffect(() => {
+    if (queueStatus.phase !== 'READY' || !queueStatus.allocation) return;
+    const allocation = matchmakingService.getStatus().allocation;
+    if (!allocation) return;
+    matchmakingService.consumeAllocation();
+    soundEngine.playUiSound('matchFound');
+    onLaunch();
+  }, [queueStatus.phase, queueStatus.allocation, onLaunch]);
 
   useEffect(() => {
-    if (!queueState.active) {
-      setQueueElapsed(0);
-      return;
-    }
-    const interval = setInterval(() => {
-      setQueueElapsed((e) => e + 0.1);
-    }, 100);
-    return () => clearInterval(interval);
-  }, [queueState.active]);
-
-  // Simulated matchmaking: after ~2.5s of queue, launch the match.
-  useEffect(() => {
-    if (!queueState.active) return;
-    const timeout = setTimeout(() => {
-      soundEngine.playUiSound('matchFound');
-      onLaunch();
-    }, 2500);
-    return () => clearTimeout(timeout);
-  }, [queueState.active, onLaunch]);
+    if (!queueState.active || queueStatus.phase !== 'SEARCHING') return;
+    const interval = window.setInterval(() => {
+      setQueueStatus((current) => ({
+        ...current,
+        elapsedSec: current.queuedAt ? (Date.now() - current.queuedAt) / 1000 : current.elapsedSec
+      }));
+    }, 250);
+    return () => window.clearInterval(interval);
+  }, [queueState.active, queueStatus.phase]);
 
   const allMaps = [
     ...Object.values(OFFICIAL_MAPS).map((m) => ({
@@ -110,6 +117,24 @@ export const PlayPanel: React.FC<{ onLaunch: () => void }> = ({ onLaunch }) => {
   ];
 
   const modeCfg = getModeConfig(selectedMode);
+  const handleCancelQueue = () => {
+    matchmakingService.cancel();
+    cancelQueue();
+  };
+  const handleStartQueue = () => {
+    startQueue();
+    if (selectedMode !== 'Premier') {
+      matchmakingService.enqueue({
+        mode: selectedMode,
+        mapId: selectedMapId,
+        region: selectedRegion,
+        partySize: 1,
+        rating: profile.premierRating,
+        clientVersion: 'csgo-web/1.0.0',
+        kind: selectedMode === 'Practice' ? 'PRACTICE' : selectedMode === 'Custom' ? 'CUSTOM' : 'MATCHMAKING'
+      });
+    }
+  };
 
   if (premierVeto.active) {
     return (
@@ -143,7 +168,7 @@ export const PlayPanel: React.FC<{ onLaunch: () => void }> = ({ onLaunch }) => {
           })}
         </div>
         <div className="mt-4 flex gap-2">
-          <Button variant="ghost" onClick={cancelQueue}>
+          <Button variant="ghost" onClick={handleCancelQueue}>
             CANCEL VETO
           </Button>
         </div>
@@ -152,7 +177,24 @@ export const PlayPanel: React.FC<{ onLaunch: () => void }> = ({ onLaunch }) => {
   }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
+    <div className="space-y-4">
+      <section className="csgo-hero-panel relative overflow-hidden">
+        <div className="csgo-hero-art" aria-hidden="true" />
+        <div className="relative z-10 flex min-h-[220px] flex-col justify-between p-5 sm:p-7">
+          <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.24em] text-tac-amber">
+            <span className="status-dot" /> LIVE OPERATIONS / EU CENTRAL
+          </div>
+          <div className="max-w-2xl">
+            <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.3em] text-slate-400">FEATURED SECTOR 04</div>
+            <h1 className="text-3xl font-black uppercase tracking-tight text-white sm:text-5xl">Own the angle.</h1>
+            <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-300">Precision rounds, readable maps, and a server that keeps score. Queue for a verified match or enter the range to tune your setup.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-slate-400">
+            <span className="hero-chip">64 / 128 TICK</span><span className="hero-chip">10 MAPS IN ROTATION</span><span className="hero-chip hero-chip-accent">NO CLIENT-SIDE RESULTS</span>
+          </div>
+        </div>
+      </section>
+      <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
       <div className="space-y-4">
         <Panel
           title="SELECT GAME MODE"
@@ -407,19 +449,22 @@ export const PlayPanel: React.FC<{ onLaunch: () => void }> = ({ onLaunch }) => {
           </div>
 
           <div className="mt-4 space-y-2">
-            {queueState.active ? (
+            {queueState.active && queueStatus.phase !== 'ERROR' ? (
               <>
-                <div className="flex items-center justify-center gap-2 rounded border border-cyan-700/60 bg-cyan-950/40 px-3 py-2.5 text-xs font-bold text-cyan-200">
+                <div className="flex items-center justify-center gap-2 rounded border border-amber-700/60 bg-amber-950/30 px-3 py-2.5 text-xs font-bold text-amber-200">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  SEARCHING — {queueElapsed.toFixed(1)}s
+                  {queueStatus.phase === 'READY' ? 'SERVER READY' : 'SEARCHING'} — {queueStatus.elapsedSec.toFixed(1)}s
                 </div>
                 <div className="h-1 w-full overflow-hidden rounded-full bg-slate-800">
                   <div
-                    className="h-full bg-cyan-500 transition-all"
-                    style={{ width: `${Math.min(100, (queueElapsed / 2.5) * 100)}%` }}
+                    className="h-full bg-amber-500 transition-all"
+                    style={{ width: `${queueStatus.phase === 'READY' ? 100 : Math.min(94, queueStatus.elapsedSec * 8)}%` }}
                   />
                 </div>
-                <Button variant="danger" className="w-full" onClick={cancelQueue}>
+                <div className="text-center font-mono text-[9px] uppercase tracking-widest text-slate-500">
+                  {queueStatus.message}
+                </div>
+                <Button variant="danger" className="w-full" onClick={handleCancelQueue}>
                   CANCEL QUEUE
                 </Button>
               </>
@@ -430,7 +475,7 @@ export const PlayPanel: React.FC<{ onLaunch: () => void }> = ({ onLaunch }) => {
                 className="w-full"
                 onClick={() => {
                   soundEngine.playUiSound('click');
-                  startQueue();
+                  handleStartQueue();
                 }}
               >
                 <Swords className="h-4 w-4" />
@@ -465,6 +510,7 @@ export const PlayPanel: React.FC<{ onLaunch: () => void }> = ({ onLaunch }) => {
             </div>
           </div>
         </Panel>
+      </div>
       </div>
     </div>
   );

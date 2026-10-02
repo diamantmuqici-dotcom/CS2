@@ -1,8 +1,14 @@
-# VANGUARD PROTOCOL
+# CSGO
 
-**A browser-based competitive tactical FPS platform with an original 3D engine, authoritative multiplayer architecture, a map workshop, and a live in-browser map editor.**
+**An original browser-based competitive tactical FPS platform with a procedural 3D engine, authoritative match boundary, map workshop, replay theatre, and live in-browser map editor.**
 
-Vanguard Protocol is an original, independently developed project. It contains no third-party game code, assets, models, textures, audio, map layouts, or branding. Every weapon, map, sound, prop, and UI element is generated procedurally in code or authored for this project.
+CSGO is an original, independently developed project. It contains no third-party game code, assets, models, textures, audio, map layouts, or branding. Every weapon, map, sound, prop, and UI element is generated procedurally in code or authored for this project.
+
+---
+
+## Current platform boundary
+
+The launcher is branded **CSGO** and keeps the original competitive-FPS information architecture without importing proprietary game assets. Matchmaking lives behind `src/game/matchmaking/`: production builds request server-issued queue tickets, while development uses an explicit embedded-authority adapter. `/admin/*` is a separate operator shell; sensitive server endpoints require server-side role authorization and return `ADMIN_FORBIDDEN` without an authenticated operator session.
 
 ---
 
@@ -497,4 +503,4 @@ Everything else in the feature list is implemented and functional. There are no 
 
 ## Licence / attribution
 
-Original work. All weapon names, map layouts, geometry, audio synthesis, UI artwork, and code were authored for this project. Vanguard Protocol is not affiliated with, endorsed by, or derived from any existing commercial tactical shooter.
+Original work. All weapon names, map layouts, geometry, audio synthesis, UI artwork, and code were authored for this project. CSGO is not affiliated with, endorsed by, or derived from any existing commercial tactical shooter.

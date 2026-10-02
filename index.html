@@ -3,13 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#090c10" />
+    <meta name="theme-color" content="#0b0d0f" />
+    <link rel="icon" type="image/svg+xml" href="./branding/csgo-mark.svg" />
     <meta name="color-scheme" content="dark" />
     <meta
       name="description"
-      content="Vanguard Protocol — a browser-based competitive tactical FPS platform with an original 3D engine, authoritative multiplayer architecture, workshop, and map editor."
+      content="CSGO — an original browser-based competitive tactical FPS with server-verified matches, a workshop, replays, and low-end compatibility rendering."
     />
-    <title>Vanguard Protocol — Tactical FPS Platform</title>
+    <title>CSGO — Competitive Tactical FPS</title>
     <style>
       /* Boot styles are inlined on purpose: the boot screen must be able to
          render even if the stylesheet and the module bundle both fail. */
@@ -17,7 +18,7 @@
         --bg: #090c10;
         --panel: #10151c;
         --border: #232e3c;
-        --cyan: #22d3ee;
+        --cyan: #e3a33b;
         --text: #e2e8f0;
         --muted: #94a3b8;
         --ok: #34d399;
@@ -233,7 +234,7 @@
   </head>
   <body>
     <div id="boot-splash">
-      <div class="mark">Vanguard <span>Protocol</span></div>
+      <div class="mark">CS<span>GO</span></div>
       <div class="sub" id="boot-sub">Initializing tactical systems</div>
       <div id="boot-bar"><i></i></div>
       <div id="boot-status">BOOT</div>
@@ -247,7 +248,7 @@
         It never claims the browser is unsupported; it names the subsystem.
       -->
       <div id="boot-error">
-        <h2>VANGUARD PROTOCOL — SYSTEM INITIALIZATION FAILURE</h2>
+        <h2>CSGO — SYSTEM INITIALIZATION FAILURE</h2>
         <p class="why" id="boot-error-why"></p>
         <ul id="boot-diag"></ul>
         <div id="boot-actions">
@@ -515,7 +516,7 @@
           var r = appReport();
           window.alert(
             r
-              ? 'Vanguard Protocol boot report\n\n' +
+              ? 'CSGO boot report\n\n' +
                   r.stages
                     .map(function (s) {
                       return s.label + ': ' + s.status.toUpperCase() + (s.detail ? ' — ' + s.detail : '');

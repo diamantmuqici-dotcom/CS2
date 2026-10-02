@@ -2,86 +2,81 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  color-scheme: dark;
+  --csgo-bg: #0b0d0f;
+  --csgo-surface: #121517;
+  --csgo-surface-2: #191d1f;
+  --csgo-line: #2a2f31;
+  --csgo-muted: #8f9798;
+  --csgo-amber: #e3a33b;
+  --csgo-amber-bright: #f0ba54;
+  --csgo-green: #73b89a;
+}
+
 @layer base {
-  :root {
-    color-scheme: dark;
-  }
-
-  html,
-  body,
-  #root {
-    height: 100%;
-    margin: 0;
-    background-color: #090c10;
-  }
-
+  html, body, #root { min-height: 100%; margin: 0; background: var(--csgo-bg); }
   body {
-    font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    color: #eef0ed;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     -webkit-font-smoothing: antialiased;
     overscroll-behavior: none;
+    background-image: radial-gradient(circle at 80% 0%, rgba(227,163,59,.08), transparent 32rem), linear-gradient(135deg, rgba(255,255,255,.018) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.018) 50%, rgba(255,255,255,.018) 75%, transparent 75%);
+    background-size: auto, 7px 7px;
   }
-
-  canvas {
-    display: block;
-    touch-action: none;
-  }
-
-  ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-  }
-  ::-webkit-scrollbar-track {
-    background: #0c1118;
-  }
-  ::-webkit-scrollbar-thumb {
-    background: #263241;
-    border-radius: 4px;
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    background: #33445a;
-  }
-
-  input[type='range'] {
-    -webkit-appearance: none;
-    appearance: none;
-  }
-  input[type='range']::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 13px;
-    height: 13px;
-    border-radius: 9999px;
-    background: #06b6d4;
-    border: 2px solid #0c1118;
-    cursor: pointer;
-    box-shadow: 0 0 0 1px rgba(6, 182, 212, 0.4);
-  }
-  input[type='range']::-moz-range-thumb {
-    width: 13px;
-    height: 13px;
-    border-radius: 9999px;
-    background: #06b6d4;
-    border: 2px solid #0c1118;
-    cursor: pointer;
-  }
-
-  input[type='color'] {
-    padding: 2px;
-  }
+  button, input, select, textarea { font: inherit; }
+  button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--csgo-amber-bright); outline-offset: 2px; }
+  canvas { display: block; touch-action: none; }
+  ::selection { color: #16120a; background: var(--csgo-amber); }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: #0b0d0f; }
+  ::-webkit-scrollbar-thumb { background: #384044; border-radius: 2px; }
+  ::-webkit-scrollbar-thumb:hover { background: #5b6365; }
+  input[type='range'] { -webkit-appearance: none; appearance: none; }
+  input[type='range']::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 13px; height: 13px; border-radius: 1px; background: var(--csgo-amber); border: 2px solid #0c0e0f; cursor: pointer; box-shadow: 0 0 0 1px rgba(227,163,59,.35); }
+  input[type='range']::-moz-range-thumb { width: 13px; height: 13px; border-radius: 1px; background: var(--csgo-amber); border: 2px solid #0c0e0f; cursor: pointer; }
+  input[type='color'] { padding: 2px; }
 }
 
-@layer utilities {
-  .animate-pulse-slow {
-    animation: pulse 2.6s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-  }
+@layer components {
+  .csgo-brand-mark { position: relative; display: flex; align-items: center; justify-content: center; width: 44px; height: 34px; color: #121416; background: var(--csgo-amber); font-size: 13px; font-weight: 950; letter-spacing: -0.12em; transform: skew(-12deg); box-shadow: 4px 4px 0 rgba(227,163,59,.13); }
+  .csgo-brand-mark span, .csgo-brand-mark b { transform: skew(12deg); }
+  .csgo-brand-mark b { color: #f5f6f3; margin-left: 1px; }
+  .csgo-top-nav { display: flex; min-height: 39px; align-items: end; gap: 2px; overflow-x: auto; border-top: 1px solid rgba(255,255,255,.035); }
+  .csgo-top-nav button { position: relative; border: 0; border-bottom: 2px solid transparent; background: transparent; color: #8e9697; padding: 9px 12px 10px; white-space: nowrap; font-size: 10px; font-weight: 850; letter-spacing: .16em; text-transform: uppercase; transition: color .18s ease, background .18s ease; }
+  .csgo-top-nav button:hover { color: #f3f4f1; background: rgba(255,255,255,.035); }
+  .csgo-top-nav button.is-active { color: var(--csgo-amber-bright); border-bottom-color: var(--csgo-amber); background: rgba(227,163,59,.08); }
+  .top-nav-spacer { flex: 1; min-width: 18px; }
+  .csgo-hero-panel { min-height: 220px; border: 1px solid #343a3b; background: #141819; box-shadow: 0 18px 40px rgba(0,0,0,.26), inset 0 1px 0 rgba(255,255,255,.045); }
+  .csgo-hero-panel::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(90deg, rgba(9,11,12,.98) 0%, rgba(9,11,12,.7) 44%, rgba(9,11,12,.06) 100%); }
+  .csgo-hero-art { position: absolute; inset: 0; background: linear-gradient(150deg, transparent 0 42%, rgba(227,163,59,.14) 42.2% 42.7%, transparent 42.9%), linear-gradient(25deg, rgba(51,57,58,.95) 0 10%, transparent 10.2% 62%, rgba(105,80,45,.36) 62.2% 68%, transparent 68.2%), repeating-linear-gradient(120deg, transparent 0 22px, rgba(255,255,255,.027) 23px 24px), radial-gradient(circle at 76% 47%, rgba(227,163,59,.23), transparent 23%), #1a1e1f; opacity: .95; }
+  .status-dot { display: inline-block; width: 7px; height: 7px; background: var(--csgo-green); box-shadow: 0 0 0 3px rgba(115,184,154,.12); }
+  .hero-chip { border: 1px solid rgba(255,255,255,.12); background: rgba(10,12,13,.58); padding: 5px 7px; }
+  .hero-chip-accent { color: #e8b866; border-color: rgba(227,163,59,.35); }
+  .tactical-section { border-left: 2px solid var(--csgo-amber); padding-left: 10px; }
 }
 
+/* Preserve the information density of the existing panels while shifting the
+   palette away from a generic cyan dashboard. */
+.bg-tac-bg { background-color: var(--csgo-bg) !important; }
+.bg-tac-panel { background-color: rgba(18,21,23,.94) !important; }
+.bg-tac-panel2 { background-color: rgba(25,29,31,.92) !important; }
+.border-tac-border { border-color: var(--csgo-line) !important; }
+.text-cyan-400, .text-cyan-300 { color: var(--csgo-amber-bright) !important; }
+.bg-cyan-600, .bg-cyan-700 { background-color: #a96f1e !important; }
+.bg-cyan-600\/15, .bg-cyan-950\/30, .bg-cyan-950\/40 { background-color: rgba(168,111,30,.14) !important; }
+.border-cyan-500\/70, .border-cyan-600\/60, .border-cyan-700\/60 { border-color: rgba(227,163,59,.58) !important; }
+.ring-cyan-600\/30, .ring-cyan-700\/50 { --tw-ring-color: rgba(227,163,59,.32) !important; }
+.accent-cyan-500 { accent-color: var(--csgo-amber) !important; }
+.shadow-cyan-950\/40 { --tw-shadow-color: rgba(84,52,10,.4) !important; }
+
+@media (max-width: 1023px) {
+  .csgo-top-nav { padding-left: 12px; padding-right: 12px; }
+}
+@media (max-width: 640px) {
+  .csgo-top-nav button { padding-left: 9px; padding-right: 9px; font-size: 9px; letter-spacing: .11em; }
+  .csgo-hero-panel { min-height: 260px; }
+}
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.001ms !important;
-  }
+  *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; scroll-behavior: auto !important; }
 }

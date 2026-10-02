@@ -13,9 +13,9 @@ export type GameModeId =
 
 export type RegionId = 'EU' | 'NA' | 'SA' | 'Asia' | 'Oceania' | 'Middle East' | 'Africa';
 
-export type UserRole = 'User' | 'Creator' | 'Moderator' | 'Admin';
+export type UserRole = 'User' | 'Creator' | 'Moderator' | 'Admin' | 'Superadmin';
 
-export type BotDifficulty = 'Easy' | 'Normal' | 'Hard' | 'Expert';
+export type BotDifficulty = 'Easy' | 'Normal' | 'Hard' | 'Very Hard' | 'Extreme' | 'Expert';
 
 export type WeaponCategory =
   | 'Pistols'

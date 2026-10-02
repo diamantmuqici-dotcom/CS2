@@ -523,12 +523,12 @@ export function detectBrowserCapabilities(): BrowserCapabilities {
 
   if (!webgl2.ok && webgl1.ok) {
     warnings.push(
-      'WebGL2 is unavailable on this device. Vanguard Protocol will run on its WebGL1 compatibility renderer with reduced effects.'
+      'WebGL2 is unavailable on this device. CSGO will run on its WebGL1 compatibility renderer with reduced effects.'
     );
   }
   if (rendererTier === 'canvas2d') {
     warnings.push(
-      'No hardware-accelerated WebGL context is available. Vanguard Protocol will run in compatibility rendering mode.'
+      'No hardware-accelerated WebGL context is available. CSGO will run in compatibility rendering mode.'
     );
   }
   if (rendererTier === 'none') {

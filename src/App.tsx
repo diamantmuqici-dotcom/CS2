@@ -30,6 +30,7 @@ import { GraphicsPanel } from './components/ui/GraphicsPanel';
 import { DiagnosticsPanel } from './components/ui/DiagnosticsPanel';
 import { DebugOverlay, isDebugEnabled } from './components/ui/DebugOverlay';
 import { LocalLinkButton } from './components/ui/LocalLinkButton';
+import { AdminPanel } from './admin/AdminPanel';
 
 // Code splitting: heavy 3D-dependent panels and the live game view are only
 // fetched when the player actually navigates to them. Three.js stays out of the
@@ -62,14 +63,14 @@ type AppPhase = 'MENU' | 'IN_GAME' | 'POST_MATCH';
 
 const NAV_ITEMS: Array<{ id: MainMenuTab; label: string; icon: React.ReactNode }> = [
   { id: 'PLAY', label: 'PLAY', icon: <Swords className="h-4 w-4" /> },
-  { id: 'PROFILE', label: 'PROFILE', icon: <User className="h-4 w-4" /> },
   { id: 'WORKSHOP', label: 'WORKSHOP', icon: <Blocks className="h-4 w-4" /> },
-  { id: 'MAP_EDITOR', label: 'MAP EDITOR', icon: <Hammer className="h-4 w-4" /> },
-  { id: 'SETTINGS', label: 'SETTINGS', icon: <SettingsIcon className="h-4 w-4" /> },
-  { id: 'GRAPHICS', label: 'GRAPHICS', icon: <MonitorCog className="h-4 w-4" /> },
-  { id: 'DIAGNOSTICS', label: 'DIAGNOSTICS', icon: <Stethoscope className="h-4 w-4" /> },
   { id: 'COMMUNITY', label: 'COMMUNITY', icon: <Users className="h-4 w-4" /> },
-  { id: 'REPLAYS', label: 'REPLAYS', icon: <Video className="h-4 w-4" /> }
+  { id: 'REPLAYS', label: 'WATCH', icon: <Video className="h-4 w-4" /> },
+  { id: 'PROFILE', label: 'INVENTORY / PROFILE', icon: <User className="h-4 w-4" /> },
+  { id: 'SETTINGS', label: 'SETTINGS', icon: <SettingsIcon className="h-4 w-4" /> },
+  { id: 'MAP_EDITOR', label: 'MAP LAB', icon: <Hammer className="h-4 w-4" /> },
+  { id: 'GRAPHICS', label: 'GRAPHICS', icon: <MonitorCog className="h-4 w-4" /> },
+  { id: 'DIAGNOSTICS', label: 'DIAGNOSTICS', icon: <Stethoscope className="h-4 w-4" /> }
 ];
 
 const AppShell: React.FC = () => {
@@ -318,6 +319,10 @@ const AppShell: React.FC = () => {
         {!gameplay.reducedMotion && (
           <div className="pointer-events-none fixed inset-0 overflow-hidden">
             <div
+              className="absolute inset-0 opacity-[0.24]"
+              style={{ backgroundImage: `url(${getDeployBase()}branding/menu-grid.svg)`, backgroundSize: 'cover', backgroundPosition: 'center' }}
+            />
+            <div
               className="absolute inset-0 opacity-[0.13]"
               style={{
                 backgroundImage:
@@ -340,15 +345,15 @@ const AppShell: React.FC = () => {
         <header className="relative z-20 border-b border-tac-border bg-tac-panel/80 backdrop-blur-sm">
           <div className="mx-auto flex max-w-[1800px] flex-wrap items-center justify-between gap-3 px-5 py-3">
             <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded bg-gradient-to-br from-cyan-500 to-cyan-700 shadow-lg shadow-cyan-950/50">
-                <Shield className="h-5 w-5 text-white" />
+              <div className="csgo-brand-mark" aria-hidden="true">
+                <span>CS</span><b>GO</b>
               </div>
               <div>
-                <div className="text-sm font-black uppercase tracking-[0.22em] text-white">
-                  VANGUARD <span className="text-cyan-400">PROTOCOL</span>
+                <div className="text-sm font-black uppercase tracking-[0.28em] text-white">
+                  CSGO <span className="text-tac-amber">// LIVE OPS</span>
                 </div>
                 <div className="font-mono text-[9px] uppercase tracking-widest text-slate-500">
-                  Competitive Tactical FPS Platform · Engine v2.4.0
+                  Original browser tactical FPS · build 01.24
                 </div>
               </div>
             </div>
@@ -406,6 +411,20 @@ const AppShell: React.FC = () => {
                 <Terminal className="h-4 w-4" />
               </button>
             </div>
+          </div>
+          <div className="csgo-top-nav mx-auto max-w-[1800px] px-5">
+            {NAV_ITEMS.slice(0, 5).map((item) => (
+              <button
+                key={`top-${item.id}-${item.label}`}
+                type="button"
+                onClick={() => setActiveTab(item.id)}
+                className={activeTab === item.id ? 'is-active' : ''}
+              >
+                {item.label === 'INVENTORY / PROFILE' ? 'INVENTORY' : item.label}
+              </button>
+            ))}
+            <span className="top-nav-spacer" />
+            <button type="button" onClick={() => setActiveTab('SETTINGS')} className={activeTab === 'SETTINGS' ? 'is-active' : ''}>SETTINGS</button>
           </div>
         </header>
 
@@ -541,8 +560,8 @@ const AppShell: React.FC = () => {
         <footer className="relative z-10 border-t border-tac-border bg-tac-panel/60 px-5 py-3">
           <div className="mx-auto flex max-w-[1800px] flex-wrap items-center justify-between gap-2 font-mono text-[9px] uppercase tracking-widest text-slate-600">
             <span>
-              Vanguard Protocol is an original, independently developed tactical FPS platform. Not affiliated with
-              or endorsed by any existing commercial title.
+              CSGO is an original, independently developed browser tactical FPS. Built for fair play, readable competition,
+              and server-verified matches — not affiliated with any existing commercial title.
             </span>
             <span className="flex items-center gap-3">
               <span>SCHEMA v1</span>
@@ -563,9 +582,12 @@ const AppShell: React.FC = () => {
  * Root component. The developer overlay (`?debug=1`) is mounted here so it is
  * available in the launcher, in a live match and on the result screen alike.
  */
-export const App: React.FC = () => (
-  <>
-    <AppShell />
-    {isDebugEnabled() && <DebugOverlay />}
-  </>
-);
+export const App: React.FC = () => {
+  const isAdminRoute = typeof window !== 'undefined' && window.location.pathname.startsWith('/admin');
+  return (
+    <>
+      {isAdminRoute ? <AdminPanel onExit={() => { window.location.href = `${window.location.origin}${window.location.pathname.split('/admin')[0] || '/'}`; }} /> : <AppShell />}
+      {!isAdminRoute && isDebugEnabled() && <DebugOverlay />}
+    </>
+  );
+};

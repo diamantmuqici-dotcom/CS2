@@ -18,6 +18,23 @@ function vanguardAuthoritativeBackendPlugin(): Plugin {
           res.end(JSON.stringify(authoritativeServer.getHealthStatus()));
           return;
         }
+        if (url === '/api/matchmaking/queue' && req.method === 'POST') {
+          let body = '';
+          req.on('data', (chunk) => { body += chunk; });
+          req.on('end', () => {
+            try {
+              const allocation = authoritativeServer.allocateMatch(JSON.parse(body));
+              res.statusCode = allocation.ok ? 200 : 400;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify(allocation.ok ? allocation : { error: allocation.error }));
+            } catch {
+              res.statusCode = 400;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ error: { code: 'MATCHMAKING_INVALID_REQUEST', message: 'The queue request was malformed.', retryable: false } }));
+            }
+          });
+          return;
+        }
         if (url === '/api/workshop/validate' && req.method === 'POST') {
           let body = '';
           req.on('data', (chunk) => {
