@@ -1,0 +1,108 @@
+name: Deploy Vanguard Protocol to GitHub Pages
+
+# The live site is published from `main`. Previously Pages was configured with
+# build_type "legacy" (branch + path "/"), which served the RAW repository root.
+# That shipped the untranspiled source index.html, whose module bootstrap
+# pointed at /src/main.tsx — a 404 on Pages, so the app never mounted and the
+# page sat on the boot splash forever. This workflow builds `dist/` with Vite
+# and publishes the real artifact.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race; queue instead of cancelling so a build is never
+# left half-published.
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ensure Pages is configured to build from this workflow
+        # The site was previously published with build_type "legacy" (branch +
+        # path "/"), which served the raw repository and shipped an unbuilt
+        # index.html. Switch it to the Actions source so `dist/` is what gets
+        # published. This is idempotent and safe to re-run.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          current=$(gh api "repos/${GITHUB_REPOSITORY}/pages" --jq '.build_type' 2>/dev/null || echo "unknown")
+          echo "Current Pages build_type: ${current}"
+          if [ "$current" != "workflow" ]; then
+            gh api -X PUT "repos/${GITHUB_REPOSITORY}/pages" -f build_type=workflow \
+              --jq '"Updated build_type to \(.build_type)"' \
+              || echo "::warning::Could not update the Pages build type automatically. Set Settings > Pages > Build and deployment > Source to 'GitHub Actions'."
+          else
+            echo "Already configured for the GitHub Actions source."
+          fi
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build static site
+        run: npm run build
+
+      - name: Verify GitHub Pages deployment layout
+        # Regression guard for the exact bug that took the site down: serves
+        # dist/ under a /CS2/ sub-path and checks the document, its assets and
+        # their MIME types the way a browser would resolve them.
+        run: npm run verify:deploy
+
+      - name: Verify the module graph boots and mounts
+        # Loads the built site in jsdom with no WebGL and no canvas, proving
+        # the app mounts and selects a compatibility renderer instead of
+        # showing an initialization failure.
+        run: npm run verify:boot
+
+      - name: Verify base path resolution
+        run: |
+          node -e "
+            const fs=require('fs');
+            const html=fs.readFileSync('dist/index.html','utf8');
+            const refs=[...html.matchAll(/(?:src|href)=\"([^\"]+)\"/g)].map(m=>m[1]).filter(u=>!u.startsWith('data:')&&!u.startsWith('#'));
+            const bad=refs.filter(u=>u.startsWith('/'));
+            if(bad.length){console.error('::error::absolute URLs found:',bad);process.exit(1);}
+            console.log('OK: '+refs.length+' document-relative asset references.');
+          "
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -125,6 +125,65 @@ export interface MatchResultPayload {
   rounds: number;
 }
 
+/**
+ * Raised when no usable WebGL2 context can be created for the 3D engine.
+ *
+ * The message is specific on purpose: the caller uses it to route the player
+ * to the compatibility renderer instead of showing a dead canvas or a generic
+ * "unsupported browser" message.
+ */
+export class RendererUnavailableError extends Error {
+  constructor(public readonly reason: string) {
+    super(reason);
+    this.name = 'RendererUnavailableError';
+  }
+}
+
+/**
+ * Creates the WebGL2 context for the engine, with an explicit reason on
+ * failure. Probing on the real canvas first (rather than letting three.js
+ * create it) means a failure is reported before any scene work is done.
+ */
+function createWebGL2Context(
+  canvas: HTMLCanvasElement
+): { ok: true; context: WebGL2RenderingContext } | { ok: false; reason: string } {
+  if (typeof canvas.getContext !== 'function') {
+    return { ok: false, reason: 'This browser does not implement HTMLCanvasElement.getContext().' };
+  }
+  try {
+    const context = canvas.getContext('webgl2', {
+      alpha: false,
+      depth: true,
+      stencil: false,
+      antialias: false,
+      premultipliedAlpha: false,
+      preserveDrawingBuffer: false,
+      powerPreference: 'high-performance',
+      failIfMajorPerformanceCaveat: false
+    }) as WebGL2RenderingContext | null;
+
+    if (!context) {
+      return {
+        ok: false,
+        reason:
+          'A WebGL2 context could not be created on this device. Hardware acceleration is most likely disabled in the browser settings.'
+      };
+    }
+    if (context.isContextLost()) {
+      return {
+        ok: false,
+        reason: 'A WebGL2 context was created but immediately lost. The graphics driver rejected or reset it.'
+      };
+    }
+    return { ok: true, context };
+  } catch (err) {
+    return {
+      ok: false,
+      reason: `Creating the WebGL2 context threw: ${err instanceof Error ? err.message : String(err)}`
+    };
+  }
+}
+
 export class VanguardEngine {
   // Core
   public renderer!: THREE.WebGLRenderer;
@@ -258,6 +317,12 @@ export class VanguardEngine {
   private botAiAccumulator = 0;
   private scopeToggleLatched = false;
 
+  // WebGL context lifecycle -------------------------------------------------
+  private contextLost = false;
+  private onContextLost: ((event: Event) => void) | null = null;
+  private onContextRestored: (() => void) | null = null;
+  private contextLossListeners = new Set<(lost: boolean) => void>();
+
   constructor(canvas: HTMLCanvasElement, container: HTMLElement) {
     this.canvas = canvas;
     this.container = container;
@@ -311,9 +376,20 @@ export class VanguardEngine {
     this.practiceOptions.infiniteAmmo = mode === 'Practice' || this.customConfig.infiniteAmmo;
     this.practiceOptions.showGrenadeTrajectory = mode === 'Practice';
 
-    // Renderer
+    // Renderer.
+    //
+    // three.js r163+ is WebGL2-only. It throws a generic "Error creating WebGL
+    // context" on failure, which tells the player nothing. We probe first and
+    // raise a specific, actionable error so the caller can route to the
+    // compatibility renderer instead of showing a dead canvas.
+    const probe = createWebGL2Context(this.canvas);
+    if (!probe.ok) {
+      throw new RendererUnavailableError(probe.reason);
+    }
+
     this.renderer = new THREE.WebGLRenderer({
       canvas: this.canvas,
+      context: probe.context,
       antialias: false, // MSAA is disabled at the context level to keep the present path cheap.
       powerPreference: 'high-performance',
       stencil: false,
@@ -321,6 +397,10 @@ export class VanguardEngine {
       alpha: false,
       preserveDrawingBuffer: false
     } as THREE.WebGLRendererParameters);
+
+    // Context loss is recoverable if we prevent the default and wait for
+    // `restored`; without this the canvas stays black forever.
+    this.attachContextLossHandling();
 
     const video = useSettingsStore.getState().video;
     this.applyRendererSettings(video);
@@ -441,6 +521,67 @@ export class VanguardEngine {
 
   private rendererCapabilityCheck() {
     return { unsupportedReason: null as string | null };
+  }
+
+  /**
+   * Wires `webglcontextlost` / `webglcontextrestored`.
+   *
+   * `preventDefault()` on the lost event is mandatory: without it the browser
+   * never fires `restored` and the canvas stays blank. On restore the scene is
+   * rebuilt because every GPU resource (buffers, textures, programs) was
+   * discarded with the context.
+   */
+  private attachContextLossHandling(): void {
+    const canvas = this.canvas;
+    this.onContextLost = (event: Event) => {
+      event.preventDefault();
+      this.contextLost = true;
+      this.contextLossListeners.forEach((cb) => cb(true));
+    };
+    this.onContextRestored = () => {
+      this.contextLost = false;
+      try {
+        this.rebuildAfterContextRestore();
+      } catch (err) {
+        // If the rebuild fails the canvas is unrecoverable; surface it rather
+        // than silently rendering nothing.
+        this.contextLossListeners.forEach((cb) => cb(false));
+        this.appendNetworkLog(
+          `[RENDER] Context restore failed: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+      this.contextLossListeners.forEach((cb) => cb(false));
+    };
+    canvas.addEventListener('webglcontextlost', this.onContextLost, false);
+    canvas.addEventListener('webglcontextrestored', this.onContextRestored, false);
+  }
+
+  /** Reallocates GPU resources after the driver resets the context. */
+  private rebuildAfterContextRestore(): void {
+    const video = useSettingsStore.getState().video;
+    this.renderer.setPixelRatio(this.getPixelRatio(video));
+    const width = this.container.clientWidth || window.innerWidth;
+    const height = this.container.clientHeight || window.innerHeight;
+    this.renderer.setSize(width, height, false);
+    // three.js re-initialises programs and buffers lazily on the next render;
+    // the scene graph itself is plain JS and survives.
+    this.renderer.shadowMap.enabled = video.shadowQuality !== 'Off';
+    this.renderer.info.reset();
+  }
+
+  private getPixelRatio(video: VideoSettings): number {
+    const capped = Math.min(window.devicePixelRatio || 1, video.renderScale > 1 ? 2 : 1.5);
+    return capped * video.renderScale;
+  }
+
+  /** Subscribes to context-loss transitions. Returns an unsubscribe function. */
+  public onContextLostState(cb: (lost: boolean) => void): () => void {
+    this.contextLossListeners.add(cb);
+    return () => this.contextLossListeners.delete(cb);
+  }
+
+  public isContextLost(): boolean {
+    return this.contextLost;
   }
 
   private appendNetworkLog(line: string): void {
@@ -752,6 +893,15 @@ export class VanguardEngine {
     const frameStart = performance.now();
     const rawDeltaMs = nowMs - this.lastFrameTimeMs;
     this.lastFrameTimeMs = nowMs;
+
+    // Stop rendering entirely while the tab is hidden or the graphics context
+    // is lost. Simulating in the background would burn battery and, worse,
+    // accumulate a huge delta that the fixed-step loop then has to catch up on.
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+      this.accumulator = 0;
+      return;
+    }
+    if (this.contextLost) return;
 
     const video = useSettingsStore.getState().video;
     const fpsCap = this.getFpsCap(video);
@@ -2722,6 +2872,19 @@ export class VanguardEngine {
   public dispose(): void {
     this.disposed = true;
     cancelAnimationFrame(this.rafHandle);
+
+    // Detach context listeners before tearing down, otherwise a late
+    // `webglcontextrestored` would run against a disposed renderer.
+    if (this.onContextLost) {
+      this.canvas.removeEventListener('webglcontextlost', this.onContextLost);
+      this.onContextLost = null;
+    }
+    if (this.onContextRestored) {
+      this.canvas.removeEventListener('webglcontextrestored', this.onContextRestored);
+      this.onContextRestored = null;
+    }
+    this.contextLossListeners.clear();
+
     if (this.viewmodel) {
       this.camera.remove(this.viewmodel.group);
       this.viewmodel.dispose();

@@ -33,6 +33,13 @@ class AuthoritativeNetworkClient {
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private onReconcileCallback: ((pos: Vector3D) => void) | null = null;
 
+  /**
+   * Explicit WebSocket endpoint. Set by the LOCAL LINK button so a player can
+   * join a server running on their own machine (or a LAN host) instead of the
+   * host the page was served from. `null` = use the page origin.
+   */
+  private endpointOverride: string | null = null;
+
   private connectionLostCb: (() => void) | null = null;
   private connectionRestoredCb: (() => void) | null = null;
   private reconnectAttempts = 0;
@@ -59,8 +66,7 @@ class AuthoritativeNetworkClient {
     this.telemetry.localAuthority = false;
 
     try {
-      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${proto}//${window.location.host}/ws`;
+      const wsUrl = this.endpointOverride ?? defaultWebSocketUrl();
       this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = () => {
@@ -98,6 +104,40 @@ class AuthoritativeNetworkClient {
 
   public onConnectionLost(cb: () => void): void {
     this.connectionLostCb = cb;
+  }
+
+  /**
+   * Points the client at a specific server, e.g. the authoritative server
+   * running on the player's own machine at ws://localhost:5173/ws.
+   * Pass null to return to the default page-origin endpoint.
+   */
+  public setEndpoint(url: string | null): void {
+    this.endpointOverride = url;
+    this.closeSocket();
+    this.telemetry.connected = false;
+    this.telemetry.localAuthority = true;
+    this.reconnectAttempts = 0;
+    if (url) this.connect();
+  }
+
+  public getEndpoint(): string | null {
+    return this.endpointOverride;
+  }
+
+  private closeSocket(): void {
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
+    if (this.ws) {
+      try {
+        this.ws.onclose = null;
+        this.ws.close();
+      } catch {
+        // Already closing.
+      }
+      this.ws = null;
+    }
   }
 
   public onConnectionRestored(cb: () => void): void {
@@ -220,3 +260,17 @@ class AuthoritativeNetworkClient {
 }
 
 export const networkClient = new AuthoritativeNetworkClient();
+
+/**
+ * Default endpoint: a WebSocket on the same origin as the page.
+ *
+ * Note this is deliberately NOT the page's own directory. The authoritative
+ * server serves `/ws` at the origin root, and on a static host such as GitHub
+ * Pages there is no server at all — the socket simply fails to open and the
+ * client falls back to its local authoritative simulation, which the launcher
+ * reports honestly.
+ */
+function defaultWebSocketUrl(): string {
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${proto}//${window.location.host}/ws`;
+}

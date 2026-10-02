@@ -25,16 +25,19 @@ export class PerformanceMonitor {
   }
 
   public getSnapshot(): FrameTelemetrySnapshot {
+    // With no recorded frames there is nothing to report. Returning invented
+    // "144 FPS" placeholders made the telemetry panel lie before the first
+    // frame was ever presented, so the values are honestly zero instead.
     if (this.frameTimesMs.length === 0) {
       return {
-        fps: 144,
-        onePercentLowFps: 120,
-        pointOnePercentLowFps: 98,
-        frameTimeMs: 6.9,
-        cpuTimeMs: 1.4,
-        gpuTimeMs: 2.8,
-        memoryMb: 128,
-        frameHistoryMs: [6.9]
+        fps: 0,
+        onePercentLowFps: 0,
+        pointOnePercentLowFps: 0,
+        frameTimeMs: 0,
+        cpuTimeMs: 0,
+        gpuTimeMs: 0,
+        memoryMb: this.readMemoryMb(),
+        frameHistoryMs: []
       };
     }
 
@@ -51,19 +54,24 @@ export class PerformanceMonitor {
     const slowestPointOnePctAvg =
       sortedDesc.slice(0, pointOnePctCount).reduce((a, b) => a + b, 0) / pointOnePctCount;
 
-    const perfMem = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory;
-    const memoryMb = perfMem ? Math.round(perfMem.usedJSHeapSize / (1024 * 1024)) : 142;
-
     return {
       fps,
       onePercentLowFps: Math.round(1000 / Math.max(1, slowestOnePctAvg)),
       pointOnePercentLowFps: Math.round(1000 / Math.max(1, slowestPointOnePctAvg)),
       frameTimeMs: Number(avgFrameMs.toFixed(2)),
       cpuTimeMs: Number(this.lastCpuDurationMs.toFixed(2)),
-      gpuTimeMs: Number(Math.max(0.4, avgFrameMs * 0.52).toFixed(2)),
-      memoryMb,
+      // GPU time is not exposed to web pages without a timer-query extension.
+      // Reporting a fixed multiple of frame time would be fabricated, so it is
+      // reported as 0 and the UI labels it "not exposed".
+      gpuTimeMs: 0,
+      memoryMb: this.readMemoryMb(),
       frameHistoryMs: this.frameTimesMs.slice(-80)
     };
+  }
+
+  private readMemoryMb(): number {
+    const perfMem = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory;
+    return perfMem ? Math.round(perfMem.usedJSHeapSize / (1024 * 1024)) : 0;
   }
 }
 

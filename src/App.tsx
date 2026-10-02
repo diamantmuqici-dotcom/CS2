@@ -12,7 +12,9 @@ import {
   Activity,
   Wifi,
   WifiOff,
-  AlertTriangle
+  AlertTriangle,
+  MonitorCog,
+  Stethoscope
 } from 'lucide-react';
 import { useGamePlatformStore, MainMenuTab, REGION_SERVERS } from './game/core/gameStateStore';
 import { useSettingsStore } from './game/settings/settingsStore';
@@ -24,6 +26,10 @@ import { MatchResultView } from './components/game/MatchResultView';
 import { CommandConsole } from './components/ui/CommandConsole';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { PanelSpinner } from './components/ui/PanelSpinner';
+import { GraphicsPanel } from './components/ui/GraphicsPanel';
+import { DiagnosticsPanel } from './components/ui/DiagnosticsPanel';
+import { DebugOverlay, isDebugEnabled } from './components/ui/DebugOverlay';
+import { LocalLinkButton } from './components/ui/LocalLinkButton';
 
 // Code splitting: heavy 3D-dependent panels and the live game view are only
 // fetched when the player actually navigates to them. Three.js stays out of the
@@ -40,7 +46,13 @@ const ReplayPanel = lazy(() =>
 const GameView = lazy(() =>
   import('./components/game/GameView').then((m) => ({ default: m.GameView }))
 );
-import { detectSurfaceCapability } from './game/rendering/capabilities';
+// Only fetched when no WebGL2 context exists, so the 3D engine and three.js
+// stay out of the download entirely on machines that cannot use them.
+const CompatibilityGameView = lazy(() =>
+  import('./components/game/CompatibilityGameView').then((m) => ({ default: m.CompatibilityGameView }))
+);
+import { rendererManager } from './game/rendering/renderer-manager';
+import { apiUrl, isBackendExpected, getDeployBase } from './shared/runtime';
 import { soundEngine } from './game/audio/soundEngine';
 import { networkClient } from './game/network/networkClient';
 import { MatchResultPayload } from './game/core/gameEngine';
@@ -54,11 +66,13 @@ const NAV_ITEMS: Array<{ id: MainMenuTab; label: string; icon: React.ReactNode }
   { id: 'WORKSHOP', label: 'WORKSHOP', icon: <Blocks className="h-4 w-4" /> },
   { id: 'MAP_EDITOR', label: 'MAP EDITOR', icon: <Hammer className="h-4 w-4" /> },
   { id: 'SETTINGS', label: 'SETTINGS', icon: <SettingsIcon className="h-4 w-4" /> },
+  { id: 'GRAPHICS', label: 'GRAPHICS', icon: <MonitorCog className="h-4 w-4" /> },
+  { id: 'DIAGNOSTICS', label: 'DIAGNOSTICS', icon: <Stethoscope className="h-4 w-4" /> },
   { id: 'COMMUNITY', label: 'COMMUNITY', icon: <Users className="h-4 w-4" /> },
   { id: 'REPLAYS', label: 'REPLAYS', icon: <Video className="h-4 w-4" /> }
 ];
 
-export const App: React.FC = () => {
+const AppShell: React.FC = () => {
   const [phase, setPhase] = useState<AppPhase>('MENU');
   const [matchResult, setMatchResult] = useState<MatchResultPayload | null>(null);
   const [finalScoreboard, setFinalScoreboard] = useState<MatchPlayerStats[]>([]);
@@ -84,27 +98,58 @@ export const App: React.FC = () => {
   const video = useSettingsStore((s) => s.video);
   const gameplay = useSettingsStore((s) => s.gameplay);
   const updateVideo = useSettingsStore((s) => s.updateVideo);
-  const caps = useMemo(() => detectSurfaceCapability(), []);
+  // All GPU/browser detection goes through one manager, never scattered probes.
+  const renderer = useMemo(() => rendererManager.getSelection(), []);
+  const caps = renderer.capabilities;
 
-  // Network heartbeat for the launcher status pill
+  // Network heartbeat for the launcher status pill.
+  //
+  // On a static host (GitHub Pages) there is no API at all, so the request is
+  // made against the deployment base and a miss is reported as "static host"
+  // rather than as a server outage. The URL is resolved relative to the page,
+  // so this works from /CS2/ as well as from localhost.
   useEffect(() => {
     networkClient.connect();
-    const check = () => {
-      fetch('/api/health')
-        .then((r) => r.json())
-        .then((data) => {
-          setNetworkOnline(true);
-          appendConsoleLog(
-            `[NETWORK] Authoritative server ONLINE — tick ${data.currentTick} @ ${data.tickRate}Hz, ${data.connectedClients} client(s), anti-cheat ${data.antiCheatActive ? 'ACTIVE' : 'INACTIVE'}`
-          );
-        })
-        .catch(() => {
-          setNetworkOnline(false);
+    let cancelled = false;
+    let backendKnownAbsent = false;
+
+    const check = async () => {
+      if (cancelled || backendKnownAbsent) {
+        setNetworkOnline(false);
+        return;
+      }
+      try {
+        const res = await fetch(apiUrl('api/health'), { cache: 'no-store' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const type = res.headers.get('content-type') || '';
+        if (!type.includes('json')) throw new Error('non-JSON response');
+        const data = (await res.json()) as {
+          currentTick: number;
+          tickRate: number;
+          connectedClients: number;
+          antiCheatActive: boolean;
+        };
+        if (cancelled) return;
+        setNetworkOnline(true);
+        appendConsoleLog(
+          `[NETWORK] Authoritative server ONLINE — tick ${data.currentTick} @ ${data.tickRate}Hz, ${data.connectedClients} client(s), anti-cheat ${data.antiCheatActive ? 'ACTIVE' : 'INACTIVE'}`
+        );
+      } catch {
+        if (cancelled) return;
+        setNetworkOnline(false);
+        // Distinguish "this deployment has no backend" from "the backend is down".
+        isBackendExpected().then((expected) => {
+          if (!expected && !cancelled) backendKnownAbsent = true;
         });
+      }
     };
-    check();
+
+    void check();
     const interval = setInterval(check, 15000);
-    return () => clearInterval(interval);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -129,6 +174,21 @@ export const App: React.FC = () => {
       setPhase('IN_GAME');
     },
     [selectedMode, startMatch, appendConsoleLog]
+  );
+
+  // LOCAL LINK: connect to a local/LAN server, then drop straight into a match.
+  const handleLocalLink = useCallback(
+    (endpoint: string | null) => {
+      appendConsoleLog(
+        endpoint
+          ? `[LOCAL] Joined ${endpoint} — zero-ping session`
+          : '[LOCAL] Started embedded local authority — zero-ping session'
+      );
+      setSelectedMode('Deathmatch');
+      setSelectedMapId('harbor_protocol');
+      launchMatch('Deathmatch', 'harbor_protocol');
+    },
+    [appendConsoleLog, launchMatch, setSelectedMapId, setSelectedMode]
   );
 
   const handleMatchComplete = useCallback((result: MatchResultPayload, scoreboard: MatchPlayerStats[]) => {
@@ -194,10 +254,27 @@ export const App: React.FC = () => {
   // IN-GAME
   // ---------------------------------------------------------------------------
   if (phase === 'IN_GAME') {
+    // Route by the renderer that was actually selected. The 3D engine requires
+    // WebGL2 (three.js is WebGL2-only since r163); anything else runs the same
+    // match on the 2D compatibility renderer rather than failing.
+    const useCompatibility =
+      renderer.tier !== 'webgl2' && !video.rendererOverride.startsWith('Compatibility');
+
     return (
       <ErrorBoundary onReset={() => setPhase('MENU')} context="Live Match">
-        <Suspense fallback={<PanelSpinner label="LOADING TACTICAL RENDERER…" fullscreen />}>
-          <GameView onExit={handleExitMatch} onMatchComplete={handleMatchComplete} />
+        <Suspense
+          fallback={
+            <PanelSpinner
+              label={useCompatibility ? 'LOADING COMPATIBILITY RENDERER…' : 'LOADING TACTICAL RENDERER…'}
+              fullscreen
+            />
+          }
+        >
+          {useCompatibility ? (
+            <CompatibilityGameView onExit={handleExitMatch} onMatchComplete={handleMatchComplete} />
+          ) : (
+            <GameView onExit={handleExitMatch} onMatchComplete={handleMatchComplete} />
+          )}
         </Suspense>
       </ErrorBoundary>
     );
@@ -277,15 +354,26 @@ export const App: React.FC = () => {
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
+              {/* Zero-ping local session launcher — a round map plate, pinned
+                  to the top bar so it is reachable from every screen. */}
+              <LocalLinkButton onLaunch={handleLocalLink} />
+
               <div
                 className={`flex items-center gap-1.5 rounded border px-2.5 py-1 font-mono text-[10px] font-bold ${
                   networkOnline
                     ? 'border-emerald-700/60 bg-emerald-950/40 text-emerald-300'
-                    : 'border-red-700/60 bg-red-950/40 text-red-300'
+                    : 'border-amber-700/60 bg-amber-950/30 text-amber-300'
                 }`}
+                title={
+                  networkOnline
+                    ? 'Connected to the authoritative game server.'
+                    : 'This deployment is static, so there is no backend. Matches run on the embedded local authority.'
+                }
               >
                 {networkOnline ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
-                {networkOnline ? 'AUTHORITATIVE SERVER ONLINE' : 'SERVER UNREACHABLE — LOCAL AUTHORITY'}
+                {networkOnline
+                  ? 'AUTHORITATIVE SERVER ONLINE'
+                  : `STATIC HOST — LOCAL AUTHORITY (${getDeployBase()})`}
               </div>
 
               <div className="flex items-center gap-1.5 rounded border border-tac-border bg-tac-panel2 px-2.5 py-1 font-mono text-[10px] text-slate-300">
@@ -321,12 +409,26 @@ export const App: React.FC = () => {
           </div>
         </header>
 
-        {/* Browser compatibility banner */}
-        {caps.unsupportedReason && (
-          <div className="relative z-20 border-b border-amber-800/60 bg-amber-950/40">
+        {/* Renderer notice — informational only. The launcher is always usable;
+            the notice explains which renderer was selected and why, and links
+            to the diagnostics panel. It never blocks entry. */}
+        {renderer.rationale && (
+          <div
+            className={`relative z-20 border-b ${
+              renderer.tier === 'webgl2'
+                ? 'border-tac-border bg-tac-panel/50'
+                : 'border-amber-800/60 bg-amber-950/30'
+            }`}
+          >
             <div className="mx-auto flex max-w-[1800px] items-center gap-2 px-5 py-2 text-[11px] text-amber-200">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-              <span>{caps.unsupportedReason}</span>
+              <span className="min-w-0 flex-1">{renderer.rationale}</span>
+              <button
+                onClick={() => setActiveTab('DIAGNOSTICS')}
+                className="shrink-0 rounded border border-amber-700/70 px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wider text-amber-200 transition hover:bg-amber-900/40"
+              >
+                Diagnostics
+              </button>
             </div>
           </div>
         )}
@@ -390,7 +492,14 @@ export const App: React.FC = () => {
               </button>
 
               <div className="mt-3 rounded border border-tac-border bg-tac-panel/60 p-3 font-mono text-[9px] leading-relaxed text-slate-500">
-                <div>RENDERER: WebGL2</div>
+                <div>
+                  RENDERER:{' '}
+                  {renderer.tier === 'webgl2'
+                    ? 'WebGL2'
+                    : renderer.tier === 'none'
+                      ? 'INTERFACE ONLY'
+                      : 'COMPAT 2D'}
+                </div>
                 <div>CULLING: FRUSTUM + SOLID + PORTAL</div>
                 <div>TELEMETRY: {video.telemetryMode}</div>
                 <div>VIS DIST: {String(video.playerVisibilityDistance)}</div>
@@ -421,6 +530,8 @@ export const App: React.FC = () => {
               {activeTab === 'WORKSHOP' && <WorkshopPanel onTestMap={(id) => launchMatch('Practice', id)} />}
               {activeTab === 'MAP_EDITOR' && <MapEditorPanel onTestMap={(id) => launchMatch('Practice', id)} />}
               {activeTab === 'SETTINGS' && <SettingsPanel />}
+              {activeTab === 'GRAPHICS' && <GraphicsPanel />}
+              {activeTab === 'DIAGNOSTICS' && <DiagnosticsPanel />}
               {activeTab === 'COMMUNITY' && <CommunityPanel />}
               {activeTab === 'REPLAYS' && <ReplayPanel />}
             </Suspense>
@@ -446,3 +557,15 @@ export const App: React.FC = () => {
     </ErrorBoundary>
   );
 };
+
+
+/**
+ * Root component. The developer overlay (`?debug=1`) is mounted here so it is
+ * available in the launcher, in a live match and on the result screen alike.
+ */
+export const App: React.FC = () => (
+  <>
+    <AppShell />
+    {isDebugEnabled() && <DebugOverlay />}
+  </>
+);
