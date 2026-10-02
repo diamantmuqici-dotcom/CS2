@@ -1,0 +1,222 @@
+import { Vector3D } from '../../shared/types';
+import { useSettingsStore } from '../settings/settingsStore';
+
+export interface PredictedInputCmd {
+  seq: number;
+  timestampMs: number;
+  position: Vector3D;
+  yaw: number;
+  pitch: number;
+}
+
+export interface NetworkTelemetry {
+  connected: boolean;
+  /**
+   * True when the client has deliberately fallen back to a local authoritative
+   * simulation because no remote server is reachable (offline / practice play).
+   */
+  localAuthority: boolean;
+  pingMs: number;
+  jitterMs: number;
+  packetLossPercent: number;
+  serverTickRate: number;
+  serverTick: number;
+  lastAckedSeq: number;
+  reconcileCount: number;
+  antiCheatAlerts: string[];
+}
+
+class AuthoritativeNetworkClient {
+  private ws: WebSocket | null = null;
+  private seq = 0;
+  private pendingInputs: PredictedInputCmd[] = [];
+  private pingTimer: ReturnType<typeof setInterval> | null = null;
+  private onReconcileCallback: ((pos: Vector3D) => void) | null = null;
+
+  private connectionLostCb: (() => void) | null = null;
+  private connectionRestoredCb: (() => void) | null = null;
+  private reconnectAttempts = 0;
+  private hadConnection = false;
+
+  public telemetry: NetworkTelemetry = {
+    connected: false,
+    localAuthority: true,
+    pingMs: 16,
+    jitterMs: 1.2,
+    packetLossPercent: 0,
+    serverTickRate: 64,
+    serverTick: 0,
+    lastAckedSeq: 0,
+    reconcileCount: 0,
+    antiCheatAlerts: []
+  };
+
+  public connect(): void {
+    if (typeof window === 'undefined' || typeof WebSocket === 'undefined') return;
+    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+    this.telemetry.localAuthority = false;
+
+    try {
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${proto}//${window.location.host}/ws`;
+      this.ws = new WebSocket(wsUrl);
+
+      this.ws.onopen = () => {
+        const wasDown = this.hadConnection === false && this.reconnectAttempts > 0;
+        this.telemetry.connected = true;
+        this.telemetry.localAuthority = false;
+        this.reconnectAttempts = 0;
+        this.startPingLoop();
+        if (wasDown) this.connectionRestoredCb?.();
+        this.hadConnection = true;
+      };
+
+      this.ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(String(event.data));
+          this.handleMessage(msg);
+        } catch {
+          // Ignore malformed message
+        }
+      };
+
+      this.ws.onclose = () => {
+        const wasConnected = this.telemetry.connected;
+        this.telemetry.connected = false;
+        if (wasConnected) this.connectionLostCb?.();
+      };
+
+      this.ws.onerror = () => {
+        this.telemetry.connected = false;
+      };
+    } catch {
+      this.telemetry.connected = false;
+    }
+  }
+
+  public onConnectionLost(cb: () => void): void {
+    this.connectionLostCb = cb;
+  }
+
+  public onConnectionRestored(cb: () => void): void {
+    this.connectionRestoredCb = cb;
+  }
+
+  /** Immediately tears down the socket and retries the handshake. */
+  public reconnectNow(): void {
+    if (this.ws) {
+      try {
+        this.ws.close();
+      } catch {
+        // Already closing
+      }
+      this.ws = null;
+    }
+    this.telemetry.connected = false;
+    this.reconnectAttempts++;
+    this.connect();
+  }
+
+  private startPingLoop(): void {
+    if (this.pingTimer) clearInterval(this.pingTimer);
+    this.pingTimer = setInterval(() => {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'PING', clientSentAt: performance.now() }));
+      }
+    }, 1000);
+  }
+
+  private handleMessage(msg: Record<string, unknown>): void {
+    const netSettings = useSettingsStore.getState().network;
+
+    if (msg.type === 'WELCOME') {
+      this.telemetry.serverTickRate = Number(msg.tickRate) || 64;
+      this.telemetry.serverTick = Number(msg.serverTick) || 0;
+    } else if (msg.type === 'PONG') {
+      const sentAt = Number(msg.clientSentAt) || performance.now();
+      const rawRtt = Math.max(2, performance.now() - sentAt) + netSettings.simulateLatencyMs;
+      const diff = Math.abs(rawRtt - this.telemetry.pingMs);
+      this.telemetry.jitterMs = Number((this.telemetry.jitterMs * 0.8 + diff * 0.2).toFixed(1));
+      this.telemetry.pingMs = Math.round(this.telemetry.pingMs * 0.7 + rawRtt * 0.3);
+      this.telemetry.serverTick = Number(msg.serverTick) || this.telemetry.serverTick;
+      this.telemetry.packetLossPercent = netSettings.simulatePacketLossPercent;
+    } else if (msg.type === 'ACK_INPUT') {
+      const ackSeq = Number(msg.seq) || 0;
+      this.telemetry.lastAckedSeq = ackSeq;
+      this.telemetry.serverTick = Number(msg.serverTick) || this.telemetry.serverTick;
+      this.pendingInputs = this.pendingInputs.filter((cmd) => cmd.seq > ackSeq);
+    } else if (msg.type === 'SERVER_RECONCILE') {
+      this.telemetry.reconcileCount++;
+      const authPos = msg.authoritativePosition as Vector3D | undefined;
+      if (authPos && this.onReconcileCallback && netSettings.serverReconciliation) {
+        this.onReconcileCallback(authPos);
+      }
+    } else if (msg.type === 'ANTICHEAT_REJECT') {
+      const violation = msg.violation as { details?: string } | undefined;
+      if (violation?.details) {
+        this.telemetry.antiCheatAlerts = [violation.details, ...this.telemetry.antiCheatAlerts.slice(0, 9)];
+      }
+    }
+  }
+
+  public onServerReconcile(cb: (pos: Vector3D) => void): void {
+    this.onReconcileCallback = cb;
+  }
+
+  public sendInputCommand(position: Vector3D, yaw: number, pitch: number): number {
+    this.seq++;
+    const cmd: PredictedInputCmd = {
+      seq: this.seq,
+      timestampMs: performance.now(),
+      position: { ...position },
+      yaw,
+      pitch
+    };
+    this.pendingInputs.push(cmd);
+    if (this.pendingInputs.length > 128) {
+      this.pendingInputs.shift();
+    }
+
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(
+        JSON.stringify({
+          type: 'INPUT_CMD',
+          seq: cmd.seq,
+          position: cmd.position,
+          yaw: cmd.yaw,
+          pitch: cmd.pitch
+        })
+      );
+    } else {
+      // Local embedded authority fallback tick increment
+      this.telemetry.serverTick++;
+      this.telemetry.lastAckedSeq = cmd.seq;
+    }
+    return this.seq;
+  }
+
+  public sendFireEvent(
+    weaponId: string,
+    distanceMeters: number,
+    hitGroup: 'head' | 'chest' | 'stomach' | 'leg',
+    targetArmor: number,
+    targetHasHelmet: boolean
+  ): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(
+        JSON.stringify({
+          type: 'FIRE_EVENT',
+          weaponId,
+          distanceMeters,
+          hitGroup,
+          targetArmor,
+          targetHasHelmet
+        })
+      );
+    }
+  }
+}
+
+export const networkClient = new AuthoritativeNetworkClient();
