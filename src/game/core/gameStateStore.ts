@@ -16,7 +16,16 @@ import {
 import { EQUIPMENT_SPECS, WEAPON_SPECS } from '../../shared/weapons';
 import { OFFICIAL_MAPS } from '../maps/officialMaps';
 
-export type MainMenuTab = 'PLAY' | 'PROFILE' | 'WORKSHOP' | 'MAP_EDITOR' | 'SETTINGS' | 'COMMUNITY' | 'REPLAYS';
+export type MainMenuTab =
+  | 'PLAY'
+  | 'PROFILE'
+  | 'WORKSHOP'
+  | 'MAP_EDITOR'
+  | 'SETTINGS'
+  | 'GRAPHICS'
+  | 'DIAGNOSTICS'
+  | 'COMMUNITY'
+  | 'REPLAYS';
 
 export interface BuyPreset {
   id: string;

@@ -52,6 +52,7 @@ export const GameView: React.FC<GameViewProps> = ({ onExit, onMatchComplete }) =
   });
   const [initError, setInitError] = useState<string | null>(null);
   const [disconnected, setDisconnected] = useState(false);
+  const [contextLost, setContextLost] = useState(false);
 
   const caps = useMemo(() => detectSurfaceCapability(), []);
 
@@ -70,6 +71,7 @@ export const GameView: React.FC<GameViewProps> = ({ onExit, onMatchComplete }) =
         onMatchComplete(result, createdEngine.getPlayers());
       });
       createdEngine.initialize(match.mode, match.mapId, match.playerTeam);
+      createdEngine.onContextLostState((lost) => setContextLost(lost));
       engineRef.current = createdEngine;
     } catch (e) {
       setInitError((e as Error).message || 'Failed to initialize the 3D renderer.');
@@ -237,21 +239,51 @@ export const GameView: React.FC<GameViewProps> = ({ onExit, onMatchComplete }) =
 
   if (initError) {
     const isMapFailure = initError.includes('MAP_LOAD_FAILURE');
+    // A renderer failure is recoverable: the same match can run on the 2D
+    // compatibility renderer, so the player is offered that instead of being
+    // stranded on an error screen.
+    const isRendererFailure = !isMapFailure;
     return (
       <div className="flex h-screen w-screen flex-col items-center justify-center bg-tac-bg p-8 text-center">
         <AlertTriangle className="mb-4 h-14 w-14 text-amber-400" />
         <h1 className="mb-2 text-2xl font-black text-white">
           {isMapFailure ? 'MAP LOADING FAILURE' : '3D RENDERER FAILED TO INITIALIZE'}
         </h1>
-        <p className="mb-6 max-w-xl text-sm leading-relaxed text-slate-400">
+        <p className="mb-2 max-w-xl text-sm leading-relaxed text-slate-400">
           {isMapFailure
             ? `${initError.replace('MAP_LOAD_FAILURE: ', '')}
                The workshop package may be corrupted, empty, or authored for an unsupported format version.
                Return to the launcher and select a different map, or re-validate the package in the Workshop tab.`
             : initError}
         </p>
-        <div className="flex gap-3">
-          <button onClick={onExit} className="rounded bg-cyan-600 px-6 py-2.5 font-bold text-white hover:bg-cyan-500">
+        {isRendererFailure && (
+          <p className="mb-6 max-w-xl text-[12px] leading-relaxed text-slate-500">
+            Vanguard Protocol ships a compatibility renderer that runs the same match on a 2D tactical
+            view. The score, rounds, economy and bots are all identical — only the view differs.
+          </p>
+        )}
+        <div className="flex flex-wrap justify-center gap-3">
+          {isRendererFailure && (
+            <button
+              onClick={() => {
+                useSettingsStore.getState().updateVideo({ rendererOverride: 'Compatibility2D' });
+                onExit();
+                // The launcher re-enters on the next launch; reload is not needed
+                // because the match is started by the player.
+              }}
+              className="rounded bg-cyan-600 px-6 py-2.5 font-bold text-white hover:bg-cyan-500"
+            >
+              CONTINUE IN COMPATIBILITY MODE
+            </button>
+          )}
+          <button
+            onClick={onExit}
+            className={`rounded px-6 py-2.5 font-bold ${
+              isRendererFailure
+                ? 'border border-tac-border bg-tac-panel2 text-slate-200 hover:border-cyan-600'
+                : 'bg-cyan-600 text-white hover:bg-cyan-500'
+            }`}
+          >
             RETURN TO MAIN MENU
           </button>
           <button
@@ -268,6 +300,22 @@ export const GameView: React.FC<GameViewProps> = ({ onExit, onMatchComplete }) =
   return (
     <div ref={containerRef} className="relative h-screen w-screen overflow-hidden bg-black select-none">
       <canvas ref={canvasRef} className="block h-full w-full" />
+
+      {/* Graphics context recovery notice. The engine suppresses rendering
+          while lost and rebuilds its GPU resources on `restored`, so this
+          is informational rather than terminal. */}
+      {contextLost && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <div className="rounded border border-amber-700/70 bg-tac-panel/95 px-6 py-4 text-center">
+            <div className="mb-1 text-[12px] font-black uppercase tracking-[0.2em] text-amber-300">
+              Graphics context lost
+            </div>
+            <div className="text-[11px] text-slate-400">
+              The graphics driver reset the GPU. Recovering automatically…
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Damage / Hit Direction Overlay */}
       {damageFlash > 0 && (

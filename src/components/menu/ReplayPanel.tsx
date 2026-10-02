@@ -8,6 +8,7 @@ import { buildWorld } from '../../game/rendering/worldRenderer';
 import { buildOperatorAvatar } from '../../game/rendering/worldRenderer';
 import { ReplayRecord } from '../../shared/types';
 import { soundEngine } from '../../game/audio/soundEngine';
+import { rendererManager } from '../../game/rendering/renderer-manager';
 
 type CameraMode = 'FREE' | 'FIRST_PERSON' | 'THIRD_PERSON';
 type PlayerView = 'AUTO' | string;
@@ -21,6 +22,7 @@ export const ReplayPanel: React.FC = () => {
   const [timeSec, setTimeSec] = useState(0);
   const [speed, setSpeed] = useState(1);
   const [showEvents, setShowEvents] = useState(true);
+  const [viewportError, setViewportError] = useState<string | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -64,7 +66,29 @@ export const ReplayPanel: React.FC = () => {
   useEffect(() => {
     if (!canvasRef.current || !containerRef.current) return;
 
-    const renderer = new THREE.WebGLRenderer({ canvas: canvasRef.current, antialias: true });
+    // The replay theatre is 3D-only. Without a WebGL2 context there is nothing
+    // to render, so the panel says so instead of throwing inside three.js and
+    // taking the whole launcher down with an ErrorBoundary.
+    const selection = rendererManager.getSelection();
+    if (!selection.supports3D) {
+      setViewportError(
+        selection.domOnly
+          ? 'This browser provides no rendering context at all.'
+          : `The replay theatre needs a WebGL2 context. ${selection.rationale}`
+      );
+      return;
+    }
+    setViewportError(null);
+
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ canvas: canvasRef.current, antialias: true });
+    } catch (err) {
+      setViewportError(
+        `The 3D replay viewport could not start: ${err instanceof Error ? err.message : String(err)}`
+      );
+      return;
+    }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(containerRef.current.clientWidth, containerRef.current.clientHeight, false);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -272,6 +296,21 @@ export const ReplayPanel: React.FC = () => {
             className="relative h-[420px] w-full overflow-hidden rounded border border-tac-border bg-slate-950"
           >
             <canvas ref={canvasRef} className="block h-full w-full" />
+
+            {/* 3D viewport unavailable — explain why and keep the panel usable. */}
+            {viewportError && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-950/92 p-6 text-center">
+                <Video className="h-8 w-8 text-amber-400" />
+                <div className="text-[11px] font-black uppercase tracking-[0.18em] text-white">
+                  Replay theatre unavailable
+                </div>
+                <p className="max-w-md text-[11px] leading-relaxed text-slate-400">{viewportError}</p>
+                <p className="max-w-md text-[10px] leading-relaxed text-slate-600">
+                  The replay library below still lists every stored match, its score and its event
+                  timeline. Match playback needs a WebGL2 context.
+                </p>
+              </div>
+            )}
 
             {/* Overlay HUD */}
             <div className="pointer-events-none absolute left-3 top-3 space-y-1 font-mono text-[10px]">

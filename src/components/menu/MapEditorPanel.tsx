@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import {
+  AlertTriangle,
   Box,
   Square,
   Layers,
@@ -39,7 +40,7 @@ import { Panel, Button, StatChip, Tabs } from '../ui/primitives';
 import { validateWorkshopPackage } from '../../shared/security';
 import { soundEngine } from '../../game/audio/soundEngine';
 import { buildWorld } from '../../game/rendering/worldRenderer';
-import { detectSurfaceCapability } from '../../game/rendering/capabilities';
+import { rendererManager } from '../../game/rendering/renderer-manager';
 
 interface EditorObject extends MapObjectDef {
   layer: string;
@@ -94,6 +95,7 @@ export const MapEditorPanel: React.FC<{ onTestMap: (mapId: string) => void }> = 
   const [mapId, setMapId] = useState('ws_new_sector');
   const [description, setDescription] = useState('Original tactical map built in Vanguard Map Studio.');
   const [supportedModes, setSupportedModes] = useState<GameModeId[]>(['Deathmatch', 'Practice', 'Custom']);
+  const [viewportError, setViewportError] = useState<string | null>(null);
   const [objects, setObjects] = useState<EditorObject[]>(() => buildStarterGeometry());
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeTool, setActiveTool] = useState<MapObjectType | null>('wall');
@@ -114,10 +116,29 @@ export const MapEditorPanel: React.FC<{ onTestMap: (mapId: string) => void }> = 
   // ---------------------------------------------------------------------------
   useEffect(() => {
     if (!canvasRef.current || !containerRef.current) return;
-    const caps = detectSurfaceCapability();
-    if (!caps.webgl2) return;
+    // The editor viewport is 3D-only. Without WebGL2 the tool chain (object
+    // list, properties, layers, save/test) still works — only the viewport is
+    // unavailable, and it says so.
+    const selection = rendererManager.getSelection();
+    if (!selection.supports3D) {
+      setViewportError(
+        selection.domOnly
+          ? 'This browser provides no rendering context at all.'
+          : `The editor viewport needs a WebGL2 context. ${selection.rationale}`
+      );
+      return;
+    }
+    setViewportError(null);
 
-    const renderer = new THREE.WebGLRenderer({ canvas: canvasRef.current, antialias: true });
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ canvas: canvasRef.current, antialias: true });
+    } catch (err) {
+      setViewportError(
+        `The 3D editor viewport could not start: ${err instanceof Error ? err.message : String(err)}`
+      );
+      return;
+    }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(containerRef.current.clientWidth, containerRef.current.clientHeight, false);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -547,6 +568,21 @@ export const MapEditorPanel: React.FC<{ onTestMap: (mapId: string) => void }> = 
             className="relative h-[460px] w-full overflow-hidden rounded border border-tac-border bg-slate-950"
           >
             <canvas ref={canvasRef} className="block h-full w-full" />
+
+            {/* Viewport unavailable — the rest of the editor keeps working. */}
+            {viewportError && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-950/92 p-6 text-center">
+                <AlertTriangle className="h-8 w-8 text-amber-400" />
+                <div className="text-[11px] font-black uppercase tracking-[0.18em] text-white">
+                  3D viewport unavailable
+                </div>
+                <p className="max-w-md text-[11px] leading-relaxed text-slate-400">{viewportError}</p>
+                <p className="max-w-md text-[10px] leading-relaxed text-slate-600">
+                  The object list, properties, layers, grid snap, undo/redo and save/publish tools all
+                  remain fully available. Only the 3D preview is disabled.
+                </p>
+              </div>
+            )}
             <div className="pointer-events-none absolute left-3 top-3 font-mono text-[10px] text-slate-500">
               GRID SNAP {snapEnabled ? `${gridSnap}m` : 'OFF'} · {cameraMode} VIEW
             </div>

@@ -89,6 +89,16 @@ export interface VideoSettings {
   sharpening: number; // 0 to 1.0
   competitiveClarityBoost: boolean;
   headBob: boolean;
+  /** Adaptive internal resolution: scales the backing store to hold the frame budget. */
+  dynamicResolution: boolean;
+  /** Coarse behaviour switch applied on top of the individual quality sliders. */
+  performanceMode: 'Off' | 'BatterySaver' | 'Balanced' | 'Maximum';
+  /**
+   * Renderer preference. "Auto" uses the best available tier; the other values
+   * force a specific renderer so a user can compare them or work around a
+   * driver bug.
+   */
+  rendererOverride: 'Auto' | 'WebGL2' | 'Compatibility2D';
 }
 
 export interface MouseSettings {
@@ -246,7 +256,10 @@ export const DEFAULT_VIDEO_SETTINGS: VideoSettings = {
   colorGrading: true,
   sharpening: 0.5,
   competitiveClarityBoost: true,
-  headBob: false
+  headBob: false,
+  dynamicResolution: true,
+  performanceMode: 'Balanced',
+  rendererOverride: 'Auto'
 };
 
 export const DEFAULT_MOUSE_SETTINGS: MouseSettings = {

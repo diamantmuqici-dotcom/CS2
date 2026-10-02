@@ -1,5 +1,22 @@
+/**
+ * Backwards-compatible adapter over `browser-capabilities.ts`.
+ *
+ * The original implementation probed WebGL2 once and set `unsupportedReason`
+ * to a message claiming WebGL2 was "required", which is what produced the
+ * misleading "This application requires a modern browser with WebGL2" error
+ * screen. The real detection now lives in `browser-capabilities.ts`, and
+ * `unsupportedReason` is only populated when nothing can render at all.
+ *
+ * New code should import from `browser-capabilities` / `renderer-manager`
+ * directly; this module exists so existing call sites keep working.
+ */
+
+import { detectBrowserCapabilities, clearCapabilityCache as clearBrowserCache } from './browser-capabilities';
+import type { BrowserCapabilities } from './browser-capabilities';
+
 export interface SurfaceCapabilities {
   webgl2: boolean;
+  webgl1: boolean;
   webgpu: boolean;
   pointerLock: boolean;
   webWorkers: boolean;
@@ -12,7 +29,17 @@ export interface SurfaceCapabilities {
   rendererString: string;
   vendorString: string;
   isSoftwareRenderer: boolean;
+  /** True only when no rendering surface exists at all. */
+  canRenderAnything: boolean;
+  /**
+   * Non-null ONLY when the device cannot render by any route. Previously this
+   * was set for any machine without WebGL2, which blocked the whole app on
+   * hardware that could still run the 2D compatibility renderer.
+   */
   unsupportedReason: string | null;
+  /** Non-fatal notes; safe to show in a banner. */
+  notices: string[];
+  full: BrowserCapabilities;
 }
 
 let cached: SurfaceCapabilities | null = null;
@@ -20,70 +47,38 @@ let cached: SurfaceCapabilities | null = null;
 export function detectSurfaceCapability(): SurfaceCapabilities {
   if (cached) return cached;
 
-  const hasWindow = typeof window !== 'undefined';
-  const nav = hasWindow ? window.navigator : undefined;
+  const caps = detectBrowserCapabilities();
 
-  let webgl2 = false;
-  let maxTextureSize = 4096;
-  let maxAnisotropy = 8;
-  let rendererString = 'Unknown WebGL Device';
-  let vendorString = 'Unknown Vendor';
-
-  if (hasWindow && typeof document !== 'undefined') {
-    try {
-      const canvas = document.createElement('canvas');
-      const gl = canvas.getContext('webgl2');
-      if (gl) {
-        webgl2 = true;
-        maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 4096;
-        const aniso = gl.getExtension('EXT_texture_filter_anisotropic');
-        if (aniso) {
-          maxAnisotropy = gl.getParameter(aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT) || 8;
-        }
-        const dbg = gl.getExtension('WEBGL_debug_renderer_info');
-        if (dbg) {
-          rendererString = String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || rendererString);
-          vendorString = String(gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) || vendorString);
-        }
-        const loseContext = gl.getExtension('WEBGL_lose_context');
-        loseContext?.loseContext();
-      }
-    } catch {
-      webgl2 = false;
-    }
-  }
-
-  const isSoftwareRenderer = /swiftshader|llvmpipe|software|basic render/i.test(rendererString);
-
-  const caps: SurfaceCapabilities = {
-    webgl2,
-    webgpu: Boolean(nav && 'gpu' in nav),
-    pointerLock: Boolean(hasWindow && typeof document !== 'undefined' && 'requestPointerLock' in Element.prototype),
-    webWorkers: typeof Worker !== 'undefined',
+  cached = {
+    webgl2: caps.webgl2.ok,
+    webgl1: caps.webgl1.ok,
+    webgpu: caps.webGpu,
+    pointerLock: caps.pointerLock,
+    webWorkers: caps.webWorkers,
     offscreenCanvas: typeof OffscreenCanvas !== 'undefined',
-    gamepad: Boolean(nav && 'getGamepads' in nav),
-    webSocket: typeof WebSocket !== 'undefined',
-    audioContext: hasWindow && ('AudioContext' in window || 'webkitAudioContext' in window),
-    maxTextureSize,
-    maxAnisotropy,
-    rendererString,
-    vendorString,
-    isSoftwareRenderer,
-    unsupportedReason: null
+    gamepad: caps.gamepad,
+    webSocket: caps.webSocket,
+    audioContext: caps.audioContext,
+    maxTextureSize: caps.webgl2.maxTextureSize || caps.webgl1.maxTextureSize || 4096,
+    maxAnisotropy: caps.webgl2.maxAnisotropy || caps.webgl1.maxAnisotropy || 1,
+    rendererString: caps.gpu.renderer,
+    vendorString: caps.gpu.vendor,
+    isSoftwareRenderer: caps.gpu.class === 'software',
+    canRenderAnything: caps.canRenderAnything,
+    // Only a total absence of a rendering surface is genuinely unsupported.
+    unsupportedReason: caps.canRenderAnything
+      ? null
+      : `No rendering surface is available. WebGL2: ${caps.webgl2.reason ?? 'unavailable'}. WebGL1: ${
+          caps.webgl1.reason ?? 'unavailable'
+        }. 2D canvas: ${caps.canvas2d.reason ?? 'unavailable'}.`,
+    notices: caps.warnings,
+    full: caps
   };
 
-  if (!webgl2) {
-    caps.unsupportedReason =
-      'This device or browser does not expose a WebGL2 rendering context, which is required for the Vanguard Protocol 3D renderer. Try updating your browser or enabling hardware acceleration.';
-  } else if (isSoftwareRenderer) {
-    caps.unsupportedReason =
-      'A software rasterizer was detected instead of GPU hardware acceleration. The game will run, but you should lower render scale and use the LOW_END_PC preset for playable frame rates.';
-  }
-
-  cached = caps;
-  return caps;
+  return cached;
 }
 
 export function clearCapabilityCache(): void {
   cached = null;
+  clearBrowserCache();
 }

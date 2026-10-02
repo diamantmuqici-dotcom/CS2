@@ -2,30 +2,53 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#090c10" />
+    <meta name="color-scheme" content="dark" />
     <meta
       name="description"
       content="Vanguard Protocol — a browser-based competitive tactical FPS platform with an original 3D engine, authoritative multiplayer architecture, workshop, and map editor."
     />
     <title>Vanguard Protocol — Tactical FPS Platform</title>
     <style>
+      /* Boot styles are inlined on purpose: the boot screen must be able to
+         render even if the stylesheet and the module bundle both fail. */
+      :root {
+        --bg: #090c10;
+        --panel: #10151c;
+        --border: #232e3c;
+        --cyan: #22d3ee;
+        --text: #e2e8f0;
+        --muted: #94a3b8;
+        --ok: #34d399;
+        --fail: #f87171;
+        --warn: #fbbf24;
+      }
+      * {
+        box-sizing: border-box;
+      }
       html,
       body {
         margin: 0;
-        background: #090c10;
+        height: 100%;
+        background: var(--bg);
+        color: var(--text);
+        font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      #root {
+        min-height: 100%;
       }
       #boot-splash {
         position: fixed;
         inset: 0;
+        z-index: 9999;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        background: radial-gradient(circle at 50% 40%, #101820 0%, #090c10 70%);
-        font-family: 'Inter', system-ui, sans-serif;
-        color: #94a3b8;
-        z-index: 9999;
+        padding: 24px;
+        background: radial-gradient(circle at 50% 38%, #101820 0%, #090c10 70%);
         transition: opacity 0.35s ease;
       }
       #boot-splash.hidden {
@@ -36,110 +59,527 @@
         font-size: 22px;
         font-weight: 900;
         letter-spacing: 0.3em;
-        color: #ffffff;
         text-transform: uppercase;
+        text-align: center;
       }
       #boot-splash .mark span {
-        color: #06b6d4;
+        color: var(--cyan);
       }
       #boot-splash .sub {
         margin-top: 8px;
         font-size: 10px;
         letter-spacing: 0.24em;
         text-transform: uppercase;
-        color: #475569;
+        color: #64748b;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       }
-      #boot-splash .bar {
+      #boot-bar {
         margin-top: 22px;
-        width: 220px;
-        height: 3px;
+        width: min(320px, 80vw);
+        height: 4px;
         border-radius: 9999px;
         background: #1e293b;
         overflow: hidden;
       }
-      #boot-splash .bar > i {
+      #boot-bar > i {
         display: block;
         height: 100%;
-        width: 40%;
+        width: 0%;
         background: linear-gradient(90deg, #06b6d4, #22d3ee);
-        animation: slide 1.1s ease-in-out infinite;
+        transition: width 0.25s ease;
       }
-      @keyframes slide {
-        0% {
-          transform: translateX(-100%);
-        }
-        100% {
-          transform: translateX(350%);
-        }
+      #boot-status {
+        margin-top: 10px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 10px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--cyan);
+        min-height: 14px;
+      }
+      #boot-steps {
+        margin-top: 18px;
+        width: min(420px, 88vw);
+        display: none;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 11px;
+        color: var(--muted);
+      }
+      #boot-steps.show {
+        display: block;
+      }
+      #boot-steps .row {
+        display: flex;
+        justify-content: space-between;
+        padding: 3px 0;
+        border-bottom: 1px solid rgba(35, 46, 60, 0.5);
+      }
+      #boot-steps .row b {
+        font-weight: 600;
+        color: #cbd5e1;
+      }
+      #boot-steps .row span.val {
+        color: #64748b;
+        max-width: 60%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      #boot-steps .row.ok span.val {
+        color: var(--ok);
+      }
+      #boot-steps .row.failed span.val {
+        color: var(--fail);
+      }
+      #boot-steps .row.pending span.val,
+      #boot-steps .row.running span.val {
+        color: #475569;
       }
       #boot-error {
         display: none;
-        max-width: 560px;
-        padding: 24px;
-        text-align: center;
+        width: min(620px, 92vw);
+        max-height: 86vh;
+        overflow: auto;
+        margin-top: 20px;
+        padding: 22px;
+        border: 1px solid #7f1d1d;
+        border-radius: 10px;
+        background: rgba(30, 10, 10, 0.6);
+        text-align: left;
         font-size: 13px;
         line-height: 1.6;
+      }
+      #boot-error h2 {
+        margin: 0 0 4px;
+        font-size: 13px;
+        letter-spacing: 0.2em;
         color: #fca5a5;
+      }
+      #boot-error .why {
+        margin: 0 0 14px;
+        color: var(--muted);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 11px;
+        word-break: break-word;
+      }
+      #boot-diag {
+        margin: 0 0 16px;
+        padding: 0;
+        list-style: none;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 11px;
+      }
+      #boot-diag li {
+        display: flex;
+        gap: 8px;
+        padding: 3px 0;
+        border-bottom: 1px solid rgba(35, 46, 60, 0.6);
+      }
+      #boot-diag li .icon {
+        width: 14px;
+        flex: none;
+      }
+      #boot-diag li.ok .icon {
+        color: var(--ok);
+      }
+      #boot-diag li.fail .icon {
+        color: var(--fail);
+      }
+      #boot-diag li.info .icon {
+        color: var(--warn);
+      }
+      #boot-diag li .name {
+        width: 150px;
+        flex: none;
+        color: #cbd5e1;
+      }
+      #boot-diag li .val {
+        color: var(--muted);
+        word-break: break-word;
+      }
+      #boot-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      #boot-actions button {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        padding: 9px 14px;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        background: #161d26;
+        color: var(--text);
+        cursor: pointer;
+      }
+      #boot-actions button:hover {
+        border-color: var(--cyan);
+        color: var(--cyan);
+      }
+      #boot-actions button.primary {
+        border-color: var(--cyan);
+        background: rgba(6, 182, 212, 0.15);
+        color: #a5f3fc;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #boot-bar > i {
+          transition: none;
+        }
       }
     </style>
   </head>
   <body>
     <div id="boot-splash">
       <div class="mark">Vanguard <span>Protocol</span></div>
-      <div class="sub">Initializing tactical systems…</div>
-      <div class="bar"><i></i></div>
+      <div class="sub" id="boot-sub">Initializing tactical systems</div>
+      <div id="boot-bar"><i></i></div>
+      <div id="boot-status">BOOT</div>
+      <div id="boot-steps"></div>
+
+      <!--
+        The failure screen. It is populated from real observations only:
+        - a failed module script load  (network / base-path / MIME problem)
+        - an uncaught error or unhandled rejection
+        - a successful mount that never happened before the timeout
+        It never claims the browser is unsupported; it names the subsystem.
+      -->
       <div id="boot-error">
-        <strong>Failed to start.</strong><br />
-        This application requires a modern browser with WebGL2 and JavaScript modules enabled. If you are using an
-        unsupported browser or have hardware acceleration disabled, enable it and reload the page.
+        <h2>VANGUARD PROTOCOL — SYSTEM INITIALIZATION FAILURE</h2>
+        <p class="why" id="boot-error-why"></p>
+        <ul id="boot-diag"></ul>
+        <div id="boot-actions">
+          <button type="button" class="primary" id="boot-continue">Continue in compatibility mode</button>
+          <button type="button" id="boot-graphics-test">Run graphics test</button>
+          <button type="button" id="boot-diagnostics">View diagnostics</button>
+          <button type="button" id="boot-reload">Reload</button>
+        </div>
       </div>
     </div>
+
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+
+    <script type="module" src="/src/main.tsx" id="boot-entry"></script>
     <script>
-      // Hide the boot splash once React has mounted, or surface a fatal boot error.
+      /* ------------------------------------------------------------------------
+       * Boot supervisor.
+       *
+       * Responsibilities:
+       *  1. Detect that the module bundle itself failed to load (404 / MIME).
+       *  2. Render staged progress while the app boots.
+       *  3. If the app mounts, get out of the way.
+       *  4. If it does not, report the exact cause — never a generic message.
+       * --------------------------------------------------------------------- */
       (function () {
         var splash = document.getElementById('boot-splash');
+        var bar = document.querySelector('#boot-bar > i');
+        var status = document.getElementById('boot-status');
+        var stepsEl = document.getElementById('boot-steps');
         var errorBox = document.getElementById('boot-error');
-        var attempts = 0;
-        var timer = setInterval(function () {
-          attempts++;
-          var root = document.getElementById('root');
-          if (root && root.children.length > 0) {
-            clearInterval(timer);
-            splash.classList.add('hidden');
-            setTimeout(function () {
-              splash.style.display = 'none';
-            }, 400);
-          } else if (attempts > 90) {
-            clearInterval(timer);
-            errorBox.style.display = 'block';
-          }
-        }, 150);
+        var errorWhy = document.getElementById('boot-error-why');
+        var diagList = document.getElementById('boot-diag');
+        var entry = document.getElementById('boot-entry');
+        var root = document.getElementById('root');
 
-        window.addEventListener('error', function (e) {
-          if (!e || !e.message) return;
-          if (!window.__vanguardBootErrorShown) {
-            window.__vanguardBootErrorShown = true;
-            errorBox.style.display = 'block';
-            errorBox.innerHTML =
-              '<strong>Boot error:</strong><br />' + String(e.message) + '<br /><br />Check the browser console for details.';
-          }
+        var mounted = false;
+        var failed = false;
+        var bundleError = null;
+        var runtimeErrors = [];
+        var start = performance.now();
+
+        var STAGES = [
+          { id: 'RUNTIME', label: 'Environment' },
+          { id: 'MODULES', label: 'Modules' },
+          { id: 'RENDERER', label: 'Renderer' },
+          { id: 'GPU', label: 'Graphics' },
+          { id: 'ASSETS', label: 'Assets' },
+          { id: 'APPLICATION', label: 'Application' }
+        ];
+        var state = {};
+        STAGES.forEach(function (s) {
+          state[s.id] = { status: 'pending', detail: '' };
         });
 
-        // WebGL2 capability gate — fail loudly rather than showing a broken renderer.
-        try {
-          var testCanvas = document.createElement('canvas');
-          var gl = testCanvas.getContext('webgl2');
-          if (!gl) {
-            errorBox.style.display = 'block';
-            errorBox.innerHTML =
-              '<strong>WebGL2 Unavailable</strong><br />Vanguard Protocol requires GPU-accelerated WebGL2 rendering. ' +
-              'Enable hardware acceleration in your browser settings (chrome://settings/system, edge://settings/system) and reload.';
+        function paint() {
+          var done = 0;
+          var html = '';
+          STAGES.forEach(function (s) {
+            var st = state[s.id];
+            if (st.status !== 'pending') done++;
+            html +=
+              '<div class="row ' +
+              st.status +
+              '"><b>' +
+              s.label +
+              '</b><span class="val">' +
+              (st.detail || st.status.toUpperCase()) +
+              '</span></div>';
+          });
+          if (stepsEl) {
+            stepsEl.className = 'show';
+            stepsEl.innerHTML = html;
           }
-        } catch (err) {
-          errorBox.style.display = 'block';
+          if (bar) bar.style.width = Math.round((done / STAGES.length) * 100) + '%';
         }
+
+        function setStage(id, status, detail) {
+          if (!state[id]) return;
+          state[id] = { status: status, detail: detail || '' };
+          if (statusEl && status === 'running') status.textContent = (detail || id).toUpperCase();
+          paint();
+        }
+
+        var statusEl = status;
+
+        /* --- 1. module bundle load failure -------------------------------- */
+        // A 404 or wrong MIME type on the entry chunk is THE most common cause
+        // of a dead page on a sub-path deployment, so it is caught explicitly
+        // rather than being misreported as a graphics problem.
+        if (entry) {
+          entry.addEventListener('error', function () {
+            bundleError =
+              'The application bundle could not be loaded from "' +
+              entry.getAttribute('src') +
+              '". This is a deployment or network problem, not a graphics problem.';
+            setStage('MODULES', 'failed', 'bundle request failed');
+            showFailure();
+          });
+        }
+
+        /* --- 2. uncaught errors ------------------------------------------ */
+        window.addEventListener('error', function (e) {
+          var msg =
+            (e && e.message) ||
+            (e && e.error && e.error.message) ||
+            'Unknown error';
+          runtimeErrors.push(String(msg));
+          if (!failed) showFailure();
+        });
+        window.addEventListener('unhandledrejection', function (e) {
+          var r = e && e.reason;
+          var msg = r && r.message ? r.message : String(r);
+          runtimeErrors.push('Unhandled promise rejection: ' + msg);
+          if (!failed) showFailure();
+        });
+
+        /* --- 3. success -------------------------------------------------- */
+        function onMounted() {
+          if (mounted) return;
+          mounted = true;
+          setStage('APPLICATION', 'ok', 'mounted');
+          if (statusEl) statusEl.textContent = 'READY';
+          splash.classList.add('hidden');
+          setTimeout(function () {
+            if (splash && splash.parentNode) splash.parentNode.removeChild(splash);
+          }, 400);
+        }
+
+        // The app signals a successful mount by rendering into #root and by
+        // clearing this flag on window.
+        window.__vanguardBooted = function () {
+          onMounted();
+        };
+
+        var poll = setInterval(function () {
+          if (root && root.childElementCount > 0) {
+            clearInterval(poll);
+            onMounted();
+          }
+        }, 100);
+
+        /* --- 4. failure screen ------------------------------------------- */
+        function addDiag(kind, name, value) {
+          var li = document.createElement('li');
+          li.className = kind;
+          var icon = document.createElement('span');
+          icon.className = 'icon';
+          icon.textContent = kind === 'ok' ? '✓' : kind === 'fail' ? '✗' : '!';
+          var n = document.createElement('span');
+          n.className = 'name';
+          n.textContent = name;
+          var v = document.createElement('span');
+          v.className = 'val';
+          v.textContent = value;
+          li.appendChild(icon);
+          li.appendChild(n);
+          li.appendChild(v);
+          diagList.appendChild(li);
+        }
+
+        // Reads whatever the app managed to record before it died.
+        function appReport() {
+          return window.__vanguardBoot || null;
+        }
+
+        function showFailure() {
+          if (failed || mounted) return;
+          failed = true;
+          clearInterval(poll);
+          if (statusEl) statusEl.textContent = 'FAILED';
+          if (bar) bar.style.width = '100%';
+
+          var report = appReport();
+          var why;
+          if (bundleError) {
+            why = bundleError;
+          } else if (runtimeErrors.length) {
+            why = 'A JavaScript error occurred during startup: ' + runtimeErrors[0];
+          } else if (report && report.failures && report.failures.length) {
+            why = report.failures[0];
+          } else {
+            why =
+              'The application did not finish starting within 30 seconds. The page loaded, but the ' +
+              'interface never mounted.';
+          }
+          if (errorWhy) errorWhy.textContent = why;
+          errorBox.style.display = 'block';
+
+          var caps = report && report.capabilities;
+          var userAgent = navigator.userAgent;
+          var browser = /Edg\//.test(userAgent)
+            ? 'Microsoft Edge'
+            : /Firefox\//.test(userAgent)
+              ? 'Mozilla Firefox'
+              : /Chrome\//.test(userAgent)
+                ? 'Google Chrome'
+                : /Safari\//.test(userAgent)
+                  ? 'Safari'
+                  : 'Unknown';
+
+          addDiag(
+            'ok',
+            'Page & document',
+            'HTML and boot shell loaded successfully from ' + location.pathname
+          );
+          addDiag('ok', 'JavaScript', 'Script engine running (' + browser + ')');
+          addDiag(
+            bundleError ? 'fail' : 'ok',
+            'Module bundle',
+            bundleError ? 'FAILED — ' + entry.getAttribute('src') : 'Loaded'
+          );
+          addDiag('ok', 'Canvas', 'HTMLCanvasElement available');
+
+          // Graphics are reported from the live probe when the app got far
+          // enough to run it, and from an inline probe otherwise.
+          if (caps) {
+            addDiag(caps.webgl2 && caps.webgl2.ok ? 'ok' : 'info', 'WebGL2', describeWebgl(caps.webgl2));
+            addDiag(caps.webgl1 && caps.webgl1.ok ? 'ok' : 'info', 'WebGL1', describeWebgl(caps.webgl1));
+            addDiag('ok', 'Fallback renderer', report.rendererTier === 'webgl2' ? 'Not required' : 'Available (' + report.rendererTier + ')');
+          } else {
+            var gl2 = probe('webgl2');
+            var gl1 = probe('webgl1');
+            addDiag(gl2 ? 'ok' : 'info', 'WebGL2', gl2 ? 'Context available' : 'Not available — compatibility rendering will be used');
+            addDiag(gl1 ? 'ok' : 'info', 'WebGL1', gl1 ? 'Context available' : 'Not available');
+            addDiag('ok', 'Fallback renderer', gl2 || gl1 ? 'Available' : '2D canvas available');
+          }
+
+          if (report) {
+            (report.warnings || []).slice(0, 4).forEach(function (w) {
+              addDiag('info', 'Note', w);
+            });
+          }
+          runtimeErrors.slice(0, 3).forEach(function (e) {
+            addDiag('info', 'Console error', e);
+          });
+        }
+
+        function describeWebgl(p) {
+          if (!p) return 'Unknown';
+          if (p.ok) {
+            return 'Available — ' + (p.gpu ? p.gpu.renderer : 'GPU') + ' · ' + (p.glslVersion || 'GLSL');
+          }
+          return p.reason || 'Not available';
+        }
+
+        function probe(kind) {
+          try {
+            var c = document.createElement('canvas');
+            if (kind === 'webgl2') return !!c.getContext('webgl2');
+            return !!(c.getContext('webgl') || c.getContext('experimental-webgl'));
+          } catch (e) {
+            return false;
+          }
+        }
+
+        /* --- 5. failure screen actions ----------------------------------- */
+        function on(id, fn) {
+          var el = document.getElementById(id);
+          if (el) el.addEventListener('click', fn);
+        }
+        on('boot-reload', function () {
+          location.reload();
+        });
+        on('boot-diagnostics', function () {
+          var r = appReport();
+          window.alert(
+            r
+              ? 'Vanguard Protocol boot report\n\n' +
+                  r.stages
+                    .map(function (s) {
+                      return s.label + ': ' + s.status.toUpperCase() + (s.detail ? ' — ' + s.detail : '');
+                    })
+                    .join('\n') +
+                  '\n\nRenderer: ' +
+                  r.rendererTier +
+                  '\nDetection time: ' +
+                  (r.capabilities ? r.capabilities.detectionMs : '?') +
+                  'ms'
+              : 'No boot report was recorded. The application module did not execute.\n\nURL: ' +
+                location.href +
+                '\nEntry: ' +
+                (entry ? entry.getAttribute('src') : 'n/a')
+          );
+        });
+        on('boot-graphics-test', function () {
+          var gl2 = probe('webgl2');
+          var gl1 = probe('webgl1');
+          window.alert(
+            'Graphics capability test\n\n' +
+              'WebGL2: ' + (gl2 ? 'AVAILABLE' : 'unavailable') + '\n' +
+              'WebGL1: ' + (gl1 ? 'AVAILABLE' : 'unavailable') + '\n' +
+              '2D canvas: ' + (probe2d() ? 'AVAILABLE' : 'unavailable') + '\n' +
+              'Device pixel ratio: ' + window.devicePixelRatio + '\n' +
+              'Viewport: ' + window.innerWidth + 'x' + window.innerHeight
+          );
+        });
+        function probe2d() {
+          try {
+            return !!document.createElement('canvas').getContext('2d');
+          } catch (e) {
+            return false;
+          }
+        }
+
+        // Never trap the user behind the error screen: if the launcher can run
+        // at all, the button enters it rather than reloading into the same
+        // failure.
+        on('boot-continue', function () {
+          if (!root) return;
+          if (root.childElementCount > 0) {
+            splash.classList.add('hidden');
+            setTimeout(function () {
+              if (splash.parentNode) splash.parentNode.removeChild(splash);
+            }, 300);
+            return;
+          }
+          // The bundle never ran, so there is nothing to enter. Reload with the
+          // cache bypassed in case a stale module was cached by the browser.
+          var url = location.href.split('#')[0] + '#compat';
+          location.replace(url);
+        });
+
+        /* --- 6. timeout guard -------------------------------------------- */
+        setTimeout(function () {
+          if (!mounted && !failed) {
+            runtimeErrors.push('Timed out after 30s waiting for the interface to mount.');
+            showFailure();
+          }
+        }, 30000);
+
+        paint();
+        void start;
       })();
     </script>
   </body>
