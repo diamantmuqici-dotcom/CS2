@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GameMapDefinition, MapObjectDef, MaterialSurface } from '../../shared/types';
 import { detectSurfaceCapability } from './capabilities';
+import { useSettingsStore } from '../settings/settingsStore';
 
 export interface BuiltWorld {
   root: THREE.Group;
@@ -13,6 +14,70 @@ export interface BuiltWorld {
   lightCount: number;
   totalTriangles: number;
   dispose: () => void;
+}
+
+const csgoTextureCache = new Map<MaterialSurface, THREE.CanvasTexture | null>();
+
+function getCsgoProceduralTexture(surface: MaterialSurface): THREE.CanvasTexture | null {
+  if (csgoTextureCache.has(surface)) return csgoTextureCache.get(surface) ?? null;
+  if (typeof document === 'undefined') {
+    csgoTextureCache.set(surface, null);
+    return null;
+  }
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      csgoTextureCache.set(surface, null);
+      return null;
+    }
+    ctx.fillStyle = '#d4d4d4';
+    ctx.fillRect(0, 0, 64, 64);
+
+    if (surface === 'concrete' || surface === 'sand') {
+      // CS:GO Dust2 / Mirage masonry & plaster lines
+      ctx.strokeStyle = 'rgba(0,0,0,0.14)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(1, 1, 62, 30);
+      ctx.strokeRect(1, 33, 30, 30);
+      ctx.strokeRect(33, 33, 30, 30);
+      ctx.fillStyle = 'rgba(255,255,255,0.06)';
+      ctx.fillRect(4, 4, 24, 10);
+    } else if (surface === 'wood') {
+      // CS:GO crate plank & diagonal brace
+      ctx.strokeStyle = 'rgba(0,0,0,0.22)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(2, 2, 60, 60);
+      for (let y = 16; y < 64; y += 16) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(64, y);
+        ctx.stroke();
+      }
+    } else if (surface === 'metal' || surface === 'tile') {
+      // CS:GO Nuke / Train industrial panel & rivets
+      ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(2, 2, 60, 60);
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      ctx.fillRect(6, 6, 3, 3);
+      ctx.fillRect(55, 6, 3, 3);
+      ctx.fillRect(6, 55, 3, 3);
+      ctx.fillRect(55, 55, 3, 3);
+    }
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(2, 2);
+    csgoTextureCache.set(surface, tex);
+    return tex;
+  } catch {
+    csgoTextureCache.set(surface, null);
+    return null;
+  }
 }
 
 function surfaceMaterialProps(surface: MaterialSurface): { roughness: number; metalness: number; emissiveIntensity: number } {
@@ -154,24 +219,61 @@ export function buildWorld(map: GameMapDefinition): BuiltWorld {
   let lightCount = 0;
   let totalTriangles = 0;
 
-  // Shared materials cache keyed by color+surface to drastically reduce draw calls
-  const materialCache = new Map<string, THREE.MeshStandardMaterial>();
-  const getMaterial = (obj: MapObjectDef): THREE.MeshStandardMaterial => {
-    const key = `${obj.color}_${obj.material}_${obj.material === 'energy' ? 'e' : 's'}`;
+  // Shared materials cache keyed by color+surface+shaderMode to drastically reduce draw calls
+  const video = useSettingsStore.getState().video;
+  const shaderMode = video.csgoClassicGraphics ? video.shaderDetailMode : 'Standard_PBR';
+  const materialCache = new Map<string, THREE.Material>();
+  const getMaterial = (obj: MapObjectDef): THREE.Material => {
+    const key = `${obj.color}_${obj.material}_${shaderMode}_${video.textureQuality}`;
     const cached = materialCache.get(key);
     if (cached) return cached;
     const props = surfaceMaterialProps(obj.material);
-    const material = new THREE.MeshStandardMaterial({
-      color: new THREE.Color(obj.color),
-      roughness: props.roughness,
-      metalness: props.metalness,
-      emissive: props.emissiveIntensity > 0 ? new THREE.Color(obj.color) : new THREE.Color(0x000000),
-      emissiveIntensity: props.emissiveIntensity,
-      transparent: obj.type === 'water',
-      opacity: obj.type === 'water' ? 0.72 : 1,
-      side: THREE.FrontSide,
-      flatShading: false
-    });
+    const baseColor = new THREE.Color(obj.color);
+    if (video.csgoClassicGraphics) {
+      // CS:GO Source-1 matte visibility grading (crisp contrast, zero bloom washout)
+      const hsl = { h: 0, s: 0, l: 0 };
+      baseColor.getHSL(hsl);
+      baseColor.setHSL(hsl.h, Math.min(1, hsl.s * 0.9), Math.min(0.86, Math.max(0.18, hsl.l * 1.07)));
+    }
+    const procTex = video.textureQuality !== 'Low' ? getCsgoProceduralTexture(obj.material) : null;
+
+    let material: THREE.Material;
+    if (shaderMode === 'CSGO_Fast_Lambert') {
+      material = new THREE.MeshLambertMaterial({
+        color: baseColor,
+        map: procTex,
+        emissive: props.emissiveIntensity > 0 ? new THREE.Color(obj.color) : new THREE.Color(0x000000),
+        emissiveIntensity: props.emissiveIntensity,
+        transparent: obj.type === 'water',
+        opacity: obj.type === 'water' ? 0.72 : 1,
+        side: THREE.FrontSide
+      });
+    } else if (shaderMode === 'CSGO_Classic_Phong') {
+      material = new THREE.MeshPhongMaterial({
+        color: baseColor,
+        map: procTex,
+        shininess: obj.material === 'metal' || obj.material === 'tile' ? 32 : 8,
+        specular: new THREE.Color(obj.material === 'metal' ? 0x334155 : 0x111111),
+        emissive: props.emissiveIntensity > 0 ? new THREE.Color(obj.color) : new THREE.Color(0x000000),
+        emissiveIntensity: props.emissiveIntensity,
+        transparent: obj.type === 'water',
+        opacity: obj.type === 'water' ? 0.72 : 1,
+        side: THREE.FrontSide
+      });
+    } else {
+      material = new THREE.MeshStandardMaterial({
+        color: baseColor,
+        map: procTex,
+        roughness: props.roughness,
+        metalness: props.metalness,
+        emissive: props.emissiveIntensity > 0 ? new THREE.Color(obj.color) : new THREE.Color(0x000000),
+        emissiveIntensity: props.emissiveIntensity,
+        transparent: obj.type === 'water',
+        opacity: obj.type === 'water' ? 0.72 : 1,
+        side: THREE.FrontSide,
+        flatShading: false
+      });
+    }
     materialCache.set(key, material);
     return material;
   };
@@ -201,10 +303,14 @@ export function buildWorld(map: GameMapDefinition): BuiltWorld {
       bombSites.B = [px, py, pz];
     }
     if (obj.type === 'light') {
-      const light = new THREE.PointLight(new THREE.Color(obj.color), 1.4, 26, 2);
-      light.position.set(px, py, pz);
-      lodGroups.always.add(light);
-      lightCount++;
+      // On Low-End / Mid-End PC presets, cap dynamic point lights to preserve high FPS
+      const maxLights = video.lightingQuality === 'Low' ? 2 : video.lightingQuality === 'Medium' ? 4 : 12;
+      if (lightCount < maxLights) {
+        const light = new THREE.PointLight(new THREE.Color(obj.color), 1.35, 24, 2);
+        light.position.set(px, py, pz);
+        lodGroups.always.add(light);
+        lightCount++;
+      }
       continue;
     }
     if (obj.type === 'visibility_portal' || obj.type === 'sound_zone' || obj.type === 'occlusion_zone') {
@@ -326,15 +432,26 @@ export const TEAM_COLORS = {
 export function buildOperatorAvatar(team: 'SENTINEL' | 'VORTEX'): { group: THREE.Group; dispose: () => void } {
   const colors = TEAM_COLORS[team];
   const group = new THREE.Group();
+  const video = useSettingsStore.getState().video;
+  const useFastMat = video.csgoClassicGraphics && video.shaderDetailMode !== 'Standard_PBR';
 
-  const bodyMat = new THREE.MeshStandardMaterial({ color: colors.primary, roughness: 0.62, metalness: 0.32 });
-  const gearMat = new THREE.MeshStandardMaterial({ color: 0x1c2430, roughness: 0.78, metalness: 0.2 });
-  const visorMat = new THREE.MeshStandardMaterial({
-    color: colors.accent,
-    roughness: 0.1,
-    metalness: 0.4,
-    emissive: new THREE.Color(colors.accent).multiplyScalar(0.35)
-  });
+  const bodyMat = useFastMat
+    ? new THREE.MeshLambertMaterial({ color: colors.primary })
+    : new THREE.MeshStandardMaterial({ color: colors.primary, roughness: 0.62, metalness: 0.32 });
+  const gearMat = useFastMat
+    ? new THREE.MeshLambertMaterial({ color: 0x1c2430 })
+    : new THREE.MeshStandardMaterial({ color: 0x1c2430, roughness: 0.78, metalness: 0.2 });
+  const visorMat = useFastMat
+    ? new THREE.MeshLambertMaterial({
+        color: colors.accent,
+        emissive: new THREE.Color(colors.accent).multiplyScalar(0.35)
+      })
+    : new THREE.MeshStandardMaterial({
+        color: colors.accent,
+        roughness: 0.1,
+        metalness: 0.4,
+        emissive: new THREE.Color(colors.accent).multiplyScalar(0.35)
+      });
 
   // Torso
   const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.24, 0.42, 4, 10), bodyMat);

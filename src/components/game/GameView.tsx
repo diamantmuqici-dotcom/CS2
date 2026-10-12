@@ -15,6 +15,9 @@ import { TelemetryOverlay } from '../../game/ui/TelemetryOverlay';
 import { detectSurfaceCapability } from '../../game/rendering/capabilities';
 import { MatchPlayerStats, WeaponSpec } from '../../shared/types';
 import { WEAPON_SPECS } from '../../shared/weapons';
+import { CS2LoadingScreen } from './CS2LoadingScreen';
+import { VacLiveOverlay } from './VacLiveOverlay';
+import { useVacNetStore } from '../../shared/vacnet';
 
 interface GameViewProps {
   onExit: () => void;
@@ -53,6 +56,9 @@ export const GameView: React.FC<GameViewProps> = ({ onExit, onMatchComplete }) =
   const [initError, setInitError] = useState<string | null>(null);
   const [disconnected, setDisconnected] = useState(false);
   const [contextLost, setContextLost] = useState(false);
+  const [showLoadingScreen, setShowLoadingScreen] = useState(true);
+  const triggerVacLiveBan = useVacNetStore((s) => s.triggerVacLiveBan);
+  const vacNetTelemetry = useVacNetStore((s) => s.telemetry);
 
   const caps = useMemo(() => detectSurfaceCapability(), []);
 
@@ -209,6 +215,33 @@ export const GameView: React.FC<GameViewProps> = ({ onExit, onMatchComplete }) =
     setTimeout(() => setBuyToast(null), 2200);
   }, []);
 
+  const handleRefundWeapon = useCallback((weaponId: string) => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    const res = engine.refundWeapon(weaponId);
+    soundEngine.playUiSound(res.ok ? 'click' : 'error');
+    setBuyToast(res.message);
+    setTimeout(() => setBuyToast(null), 2200);
+  }, []);
+
+  const handleAutoBuy = useCallback(() => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    const res = engine.performAutoBuy();
+    soundEngine.playUiSound('buy');
+    setBuyToast(res.message);
+    setTimeout(() => setBuyToast(null), 2200);
+  }, []);
+
+  const handleRebuy = useCallback(() => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    const res = engine.performRebuy();
+    soundEngine.playUiSound('buy');
+    setBuyToast(res.message);
+    setTimeout(() => setBuyToast(null), 2200);
+  }, []);
+
   const handleBuyEquipment = useCallback((equipId: 'kevlar_vest' | 'kevlar_helmet' | 'defuse_kit') => {
     const engine = engineRef.current;
     if (!engine) return;
@@ -298,8 +331,29 @@ export const GameView: React.FC<GameViewProps> = ({ onExit, onMatchComplete }) =
   }
 
   return (
-    <div ref={containerRef} className="relative h-screen w-screen overflow-hidden bg-black select-none">
-      <canvas ref={canvasRef} className="block h-full w-full" />
+    <div ref={containerRef} className="relative h-screen w-screen overflow-hidden bg-black select-none font-bold">
+      {showLoadingScreen && (
+        <CS2LoadingScreen
+          mode={match.mode}
+          mapId={match.mapId}
+          onComplete={() => setShowLoadingScreen(false)}
+        />
+      )}
+
+      <VacLiveOverlay onReturnToMenu={onExit} />
+
+      <canvas
+        ref={canvasRef}
+        className="block h-full w-full"
+        style={{
+          transform:
+            video.aspectRatioMode === '4:3_Stretched'
+              ? 'scaleX(1.24)'
+              : video.aspectRatioMode === '16:10_Stretched'
+                ? 'scaleX(1.11)'
+                : undefined
+        }}
+      />
 
       {/* Graphics context recovery notice. The engine suppresses rendering
           while lost and rebuilds its GPU resources on `restored`, so this
@@ -329,15 +383,43 @@ export const GameView: React.FC<GameViewProps> = ({ onExit, onMatchComplete }) =
         />
       )}
 
-      {/* Crosshair */}
+      {/* Crosshair (with CS2 cl_crosshair_recoil Follow Recoil support) */}
       {hud && hud.alive && !showBuyMenu && (
-        <div className="pointer-events-none absolute left-1/2 top-1/2 z-20 -translate-x-1/2 -translate-y-1/2">
+        <div
+          className="pointer-events-none absolute left-1/2 top-1/2 z-20"
+          style={{
+            transform: `translate(calc(-50% + ${
+              crosshair.followRecoil ? -(hud.recoilYaw || 0) * 520 : 0
+            }px), calc(-50% + ${crosshair.followRecoil ? -(hud.recoilPitch || 0) * 520 : 0}px))`
+          }}
+        >
           <CrosshairReticle
             settings={crosshair}
             movementSpeed={hud.movementSpeed}
-            isFiring={false}
+            isFiring={Math.abs(hud.recoilPitch || 0) > 0.004}
             isScoped={hud.isScoped}
           />
+        </div>
+      )}
+
+      {/* CS2 Sub-Tick & VacNet 3.0 Live Status Strip */}
+      {hud && (
+        <div className="pointer-events-none absolute bottom-1.5 left-1/2 z-30 -translate-x-1/2 flex items-center gap-2 rounded border border-slate-700/80 bg-black/80 px-3 py-1 font-mono text-[10px] font-black text-slate-200 shadow-lg">
+          <span className="text-amber-400">
+            SUB-TICK Δ {(hud.subTickDeltaMs ?? 0.18).toFixed(2)}ms ({((hud.subTickFraction ?? 0.5) * 100).toFixed(1)}%)
+          </span>
+          <span>·</span>
+          <span className={hud.counterStrafeActive ? 'text-emerald-400' : 'text-slate-400'}>
+            {hud.counterStrafeActive ? 'COUNTER-STRAFE ACCURACY LOCKED' : `VEL ${hud.movementSpeed.toFixed(1)}m/s`}
+          </span>
+          <span>·</span>
+          <span className="text-cyan-400">
+            {video.csgoClassicGraphics ? 'CS:GO GRAPHICS' : 'STANDARD'} ({video.aspectRatioMode.replace('_', ' ')})
+          </span>
+          <span>·</span>
+          <span className="text-emerald-300">
+            VACNET 3.0 ({vacNetTelemetry.suspicionScore.toFixed(0)}% RISK)
+          </span>
         </div>
       )}
 
@@ -579,12 +661,20 @@ export const GameView: React.FC<GameViewProps> = ({ onExit, onMatchComplete }) =
               </div>
             </div>
 
-            <button
-              onClick={onExit}
-              className="mt-5 text-xs font-bold uppercase tracking-widest text-slate-500 hover:text-red-400"
-            >
-              ABANDON MATCH
-            </button>
+            <div className="mt-5 flex flex-wrap items-center justify-center gap-4">
+              <button
+                onClick={() => triggerVacLiveBan('VacNet 3.0 In-Match Detection: Aimbot / Sub-Tick Spinbot Anomaly')}
+                className="rounded border border-red-600/80 bg-red-950/70 px-3 py-1.5 text-[11px] font-black uppercase tracking-wider text-red-200 hover:bg-red-900"
+              >
+                TEST VAC LIVE MATCH CANCEL (1-DAY BAN)
+              </button>
+              <button
+                onClick={onExit}
+                className="text-xs font-black uppercase tracking-widest text-slate-400 hover:text-red-400"
+              >
+                ABANDON MATCH
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -597,9 +687,12 @@ export const GameView: React.FC<GameViewProps> = ({ onExit, onMatchComplete }) =
           armor={hud.armor}
           hasHelmet={hud.hasHelmet}
           hasDefuseKit={hud.hasDefuseKit}
-          ownedWeapons={[]}
-          ownedGrenades={[]}
+          ownedWeapons={hud.ownedWeapons || []}
+          ownedGrenades={hud.ownedGrenades || []}
           onBuyWeapon={handleBuyWeapon}
+          onRefundWeapon={handleRefundWeapon}
+          onAutoBuy={handleAutoBuy}
+          onRebuy={handleRebuy}
           onBuyEquipment={handleBuyEquipment}
           onApplyPreset={handleApplyPreset}
           onClose={() => {

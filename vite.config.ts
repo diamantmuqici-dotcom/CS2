@@ -18,6 +18,38 @@ function vanguardAuthoritativeBackendPlugin(): Plugin {
           res.end(JSON.stringify(authoritativeServer.getHealthStatus()));
           return;
         }
+        if (url === '/api/client-identity' && req.method === 'GET') {
+          const forwarded = req.headers['x-forwarded-for'];
+          const rawIp =
+            (Array.isArray(forwarded) ? forwarded[0] : forwarded?.split(',')[0]?.trim()) ||
+            req.socket.remoteAddress ||
+            '185.220.101.47';
+          const ip = rawIp === '::1' || rawIp === '127.0.0.1' || rawIp.startsWith('::ffff:127.')
+            ? '185.220.101.47'
+            : rawIp.replace('::ffff:', '');
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ ipAddress: ip, antiCheat: 'VacNet 3.0 // VAC Live' }));
+          return;
+        }
+        if (url === '/api/anticheat/webhook' && req.method === 'POST') {
+          let body = '';
+          req.on('data', (chunk) => { body += chunk; });
+          req.on('end', async () => {
+            try {
+              const parsed = JSON.parse(body);
+              const { webhookService } = await import('./src/server/integrations/WebhookService');
+              const delivered = await webhookService.sendRawContent(String(parsed.content || ''), parsed.webhookUrl);
+              res.statusCode = 200;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ ok: true, delivered }));
+            } catch {
+              res.statusCode = 400;
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ ok: false }));
+            }
+          });
+          return;
+        }
         if (url === '/api/matchmaking/queue' && req.method === 'POST') {
           let body = '';
           req.on('data', (chunk) => { body += chunk; });

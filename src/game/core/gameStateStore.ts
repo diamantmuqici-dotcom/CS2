@@ -25,7 +25,8 @@ export type MainMenuTab =
   | 'GRAPHICS'
   | 'DIAGNOSTICS'
   | 'COMMUNITY'
-  | 'REPLAYS';
+  | 'REPLAYS'
+  | 'VACNET';
 
 export interface BuyPreset {
   id: string;
