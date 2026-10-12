@@ -73,6 +73,7 @@ import {
   getModeConfig
 } from '../modes/roundLogic';
 import { useGamePlatformStore } from './gameStateStore';
+import { useVacNetStore } from '../../shared/vacnet';
 
 export interface HudState {
   health: number;
@@ -109,6 +110,14 @@ export interface HudState {
   isCrouching: boolean;
   movementSpeed: number;
   playerCount: number;
+  recoilPitch?: number;
+  recoilYaw?: number;
+  subTickFraction?: number;
+  subTickDeltaMs?: number;
+  counterStrafeActive?: boolean;
+  ownedWeapons?: string[];
+  ownedGrenades?: string[];
+  purchasedThisRound?: string[];
 }
 
 interface BotAgent {
@@ -316,6 +325,14 @@ export class VanguardEngine {
   private accumulatedLookDy = 0;
   private botAiAccumulator = 0;
   private scopeToggleLatched = false;
+  private previousSlot: 'primary' | 'secondary' | 'melee' | 'grenade' = 'melee';
+  private subTickFraction = 0.5;
+  private lastSubTickDeltaMs = 0.18;
+  private counterStrafeActive = false;
+  private lastStrafeDir = 0;
+  private counterStrafeTimerSec = 0;
+  private purchasedThisRound = new Set<string>();
+  private lastRoundLoadout: string[] = [];
 
   // WebGL context lifecycle -------------------------------------------------
   private contextLost = false;
@@ -745,6 +762,9 @@ export class VanguardEngine {
     this.camera.add(this.viewmodel.group);
     triggerViewmodelDeploy(this.viewmodelAnim);
 
+    if (this.currentSlot !== slot) {
+      this.previousSlot = this.currentSlot;
+    }
     this.currentSlot = slot;
     this.localStats.currentWeapon = weaponId;
   }
@@ -1067,6 +1087,14 @@ export class VanguardEngine {
       if (pressed('primaryWeapon')) this.equipSlot('primary');
       if (pressed('secondaryWeapon')) this.equipSlot('secondary');
       if (pressed('meleeWeapon')) this.equipSlot('melee');
+      if (pressed('bombSlot')) this.equipSlot('melee');
+      if (pressed('lastWeaponUsed')) {
+        const target = this.previousSlot || (this.currentSlot === 'melee' ? 'primary' : 'melee');
+        this.equipSlot(target);
+      }
+      if (pressed('dropWeapon')) {
+        this.dropCurrentWeapon();
+      }
       if (pressed('grenadeCycle')) {
         if (this.currentSlot === 'grenade' && this.ownedGrenades.length > 0) {
           this.currentGrenadeIndex = (this.currentGrenadeIndex + 1) % this.ownedGrenades.length;
@@ -1077,9 +1105,24 @@ export class VanguardEngine {
       if (pressed('flashGrenade')) this.equipSpecificGrenade('flash_grenade');
       if (pressed('heGrenade')) this.equipSpecificGrenade('he_grenade');
       if (pressed('incendiaryGrenade')) this.equipSpecificGrenade('incendiary_grenade');
+      if (pressed('decoyGrenade')) this.equipSpecificGrenade('decoy_grenade');
       if (pressed('reload')) this.tryReload();
       if (pressed('inspectWeapon')) {
         this.viewmodelAnim.isInspecting = !this.viewmodelAnim.isInspecting;
+      }
+      if (pressed('autoBuy')) {
+        this.performAutoBuy();
+      }
+      if (pressed('rebuy')) {
+        this.performRebuy();
+      }
+      if (pressed('followRecoilToggle')) {
+        const cur = useSettingsStore.getState().crosshair.followRecoil;
+        useSettingsStore.getState().updateCrosshair({ followRecoil: !cur });
+      }
+      if (pressed('showImpactsToggle')) {
+        const cur = useSettingsStore.getState().video.subTickShowImpacts;
+        useSettingsStore.getState().updateVideo({ subTickShowImpacts: !cur });
       }
     }
 
@@ -1122,18 +1165,38 @@ export class VanguardEngine {
       }
     );
 
+    // --- CS2 Sub-Tick Counter-Strafe Detection ---
+    if (rightInput !== 0 && this.lastStrafeDir !== 0 && rightInput === -this.lastStrafeDir) {
+      // Opposite strafe key tapped -> instant CS2 sub-tick velocity damping (counter-strafe)
+      this.physics.velocity.x *= 0.22;
+      this.physics.velocity.z *= 0.22;
+      this.counterStrafeTimerSec = 0.22;
+    }
+    if (rightInput !== 0) {
+      this.lastStrafeDir = rightInput;
+    }
+    if (this.counterStrafeTimerSec > 0) {
+      this.counterStrafeTimerSec = Math.max(0, this.counterStrafeTimerSec - dt);
+    }
+    const postSpeedXZ = Math.hypot(this.physics.velocity.x, this.physics.velocity.z);
+    // CS2 34% max weapon speed accuracy threshold (~2.38 m/s)
+    this.counterStrafeActive = this.physics.grounded && (postSpeedXZ <= 2.38 * spec.moveSpeedMultiplier || this.counterStrafeTimerSec > 0);
+
     // Send authoritative input to server (throttled to ~32 Hz to conserve bandwidth)
     if (this.replayTick % 4 === 0) {
       networkClient.sendInputCommand(this.physics.position, this.yaw, this.pitch);
     }
 
-    // --- Firing ---
+    // --- Firing (CS2 Sub-Tick Evaluated) ---
     const nowSec = performance.now() / 1000;
     const firing = !isFrozen && inputManager.isActionDown('fire');
     const fireJustPressed = this.frameJustPressed.has(keybinds.fire);
     const wantsFire = firing && (spec.automatic || fireJustPressed || nowSec - this.lastFireTimeSec > 0.14);
 
     if (wantsFire && this.viewmodel) {
+      // Compute exact CS2 Sub-Tick fractional offset within the 128Hz tick
+      this.subTickFraction = Number(Math.min(0.999, Math.max(0.001, (this.accumulator / this.fixedStep) || ((performance.now() % 7.8125) / 7.8125))).toFixed(3));
+      this.lastSubTickDeltaMs = Number((this.subTickFraction * (1000 / 128)).toFixed(2));
       this.tryFire(spec, video);
     }
 
@@ -1407,6 +1470,14 @@ export class VanguardEngine {
       }
     } else if (closestPlayerHit && closestPlayerHit.bot) {
       const bot = closestPlayerHit.bot;
+      const isHeadshot = closestPlayerHit.hitGroup === 'head';
+      useVacNetStore.getState().recordShotTelemetry({
+        angularVelocityDegPerTick: Math.min(18, Math.hypot(this.lastLookDelta.dx, this.lastLookDelta.dy) * 0.12),
+        reactionTimeMs: 145 + Math.floor(Math.random() * 55),
+        isHeadshot,
+        throughWall: false,
+        subTickFraction: this.subTickFraction
+      });
       this.applyDamageToBot(
         bot,
         spec,
@@ -1446,7 +1517,9 @@ export class VanguardEngine {
     if (!spec.suppressed || video.effectsQuality === 'High') {
       this.decals.spawn(hitPoint, hitNormal, hitSurface, hitSurface === 'glass' ? 0.16 : 0.2);
       const sparkColor =
-        hitSurface === 'metal'
+        video.subTickShowImpacts
+          ? 0xff2244 // CS2 sv_showimpacts client sub-tick red marker
+          : hitSurface === 'metal'
           ? 0xffd27f
           : hitSurface === 'wood'
           ? 0x9a6b3a
@@ -1461,6 +1534,9 @@ export class VanguardEngine {
         hitSurface,
         3.4
       );
+      if (video.subTickShowImpacts) {
+        this.particles.spawnBurst(hitPoint, hitNormal, 3, 0x2266ff, hitSurface, 2.2);
+      }
     }
     soundEngine.playWeaponFire(spec.category, true, hitPoint, true);
   }
@@ -2711,7 +2787,15 @@ export class VanguardEngine {
       practiceTrajectory: this.trajectoryPreview,
       isCrouching: this.physics.crouching,
       movementSpeed: Math.hypot(this.physics.velocity.x, this.physics.velocity.z),
-      playerCount: this.bots.length + 1
+      playerCount: this.bots.length + 1,
+      recoilPitch: runtime?.recoilPitch ?? 0,
+      recoilYaw: runtime?.recoilYaw ?? 0,
+      subTickFraction: this.subTickFraction,
+      subTickDeltaMs: this.lastSubTickDeltaMs,
+      counterStrafeActive: this.counterStrafeActive,
+      ownedWeapons: [...this.ownedWeapons],
+      ownedGrenades: [...this.ownedGrenades],
+      purchasedThisRound: Array.from(this.purchasedThisRound)
     };
   }
 
@@ -2750,11 +2834,19 @@ export class VanguardEngine {
 
     this.money -= spec.price;
     this.localStats.money = this.money;
+    this.purchasedThisRound.add(weaponId);
+    if (!this.lastRoundLoadout.includes(weaponId)) {
+      this.lastRoundLoadout.push(weaponId);
+    }
 
     if (spec.slot === 'grenade') {
       if (!this.ownedGrenades.includes(weaponId)) this.ownedGrenades.push(weaponId);
       this.equipSlot('grenade');
     } else {
+      // Replace previous weapon in the same slot (CS2 behavior) unless in Practice/Deathmatch
+      if (this.matchMode !== 'Practice' && this.matchMode !== 'Deathmatch') {
+        this.ownedWeapons = this.ownedWeapons.filter((id) => WEAPON_SPECS[id]?.slot !== spec.slot);
+      }
       if (!this.ownedWeapons.includes(weaponId)) this.ownedWeapons.push(weaponId);
       this.weaponInventory[weaponId] = createWeaponRuntime(weaponId, true);
       this.equipSlot(spec.slot as 'primary' | 'secondary' | 'melee');
@@ -2762,6 +2854,78 @@ export class VanguardEngine {
 
     soundEngine.playUiSound('buy');
     return { ok: true, message: `Purchased ${spec.name}.` };
+  }
+
+  public refundWeapon(weaponId: string): { ok: boolean; message: string } {
+    const spec = WEAPON_SPECS[weaponId];
+    if (!spec) return { ok: false, message: 'Unknown weapon.' };
+    if (this.matchMode !== 'Deathmatch' && this.matchMode !== 'Practice' && this.phase !== 'BUY_PHASE') {
+      return { ok: false, message: 'Refunds are only allowed during the CS2 Buy Phase.' };
+    }
+    const ownsIt = this.ownedWeapons.includes(weaponId) || this.ownedGrenades.includes(weaponId);
+    if (!ownsIt) return { ok: false, message: 'You do not currently own this item.' };
+
+    this.money = Math.min(16000, this.money + spec.price);
+    this.localStats.money = this.money;
+    this.purchasedThisRound.delete(weaponId);
+
+    if (spec.slot === 'grenade') {
+      this.ownedGrenades = this.ownedGrenades.filter((id) => id !== weaponId);
+      if (this.currentSlot === 'grenade') this.equipSlot('secondary');
+    } else {
+      this.ownedWeapons = this.ownedWeapons.filter((id) => id !== weaponId);
+      if (spec.slot === 'secondary' && !this.ownedWeapons.some((id) => WEAPON_SPECS[id]?.slot === 'secondary')) {
+        this.ownedWeapons.push('vp9_tactical');
+      }
+      this.equipSlot(this.ownedWeapons.some((id) => WEAPON_SPECS[id]?.slot === 'primary') ? 'primary' : 'secondary');
+    }
+
+    soundEngine.playUiSound('click');
+    return { ok: true, message: `Refunded ${spec.name} (+$${spec.price}).` };
+  }
+
+  public dropCurrentWeapon(): { ok: boolean; message: string } {
+    const curId = this.localStats.currentWeapon;
+    const spec = WEAPON_SPECS[curId];
+    if (!spec || spec.slot === 'melee' || spec.slot === 'grenade') {
+      return { ok: false, message: 'Cannot drop melee weapon or active grenade.' };
+    }
+    this.ownedWeapons = this.ownedWeapons.filter((id) => id !== curId);
+    if (this.ownedWeapons.some((id) => WEAPON_SPECS[id]?.slot === 'primary')) {
+      this.equipSlot('primary');
+    } else if (this.ownedWeapons.some((id) => WEAPON_SPECS[id]?.slot === 'secondary')) {
+      this.equipSlot('secondary');
+    } else {
+      this.equipSlot('melee');
+    }
+    soundEngine.playUiSound('click');
+    return { ok: true, message: `Dropped ${spec.name}.` };
+  }
+
+  public performAutoBuy(): { ok: boolean; message: string } {
+    this.purchaseEquipment('kevlar_helmet');
+    if (this.playerTeam === 'SENTINEL') this.purchaseEquipment('defuse_kit');
+    const rifle = this.playerTeam === 'SENTINEL' ? 'vanguard_m4a' : 'harbinger_47';
+    if (this.money >= (WEAPON_SPECS[rifle]?.price ?? 2900)) {
+      this.purchaseWeapon(rifle);
+    } else if (this.money >= 2050) {
+      this.purchaseWeapon('dagger_fam');
+    } else if (this.money >= 1200) {
+      this.purchaseWeapon('spectre_mp9');
+    }
+    if (this.money >= 300) this.purchaseWeapon('smoke_grenade');
+    if (this.money >= 200) this.purchaseWeapon('flash_grenade');
+    return { ok: true, message: 'CS2 Autobuy (F1) executed.' };
+  }
+
+  public performRebuy(): { ok: boolean; message: string } {
+    if (this.lastRoundLoadout.length === 0) {
+      return this.performAutoBuy();
+    }
+    for (const id of this.lastRoundLoadout) {
+      this.purchaseWeapon(id);
+    }
+    return { ok: true, message: 'CS2 Rebuy (F2) executed.' };
   }
 
   public purchaseEquipment(equipId: 'kevlar_vest' | 'kevlar_helmet' | 'defuse_kit'): { ok: boolean; message: string } {

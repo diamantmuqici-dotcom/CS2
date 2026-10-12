@@ -7,6 +7,8 @@ export type PerformancePresetId =
   | 'QUALITY'
   | 'ULTRA'
   | 'LOW_END_PC'
+  | 'MID_END_PC'
+  | 'CSGO_CLASSIC'
   | 'HIGH_END_PC'
   | 'STREAMING'
   | 'PRACTICE'
@@ -32,19 +34,31 @@ export type BindableAction =
   | 'altFire'
   | 'reload'
   | 'interact'
+  | 'lastWeaponUsed'
   | 'primaryWeapon'
   | 'secondaryWeapon'
   | 'meleeWeapon'
   | 'grenadeCycle'
+  | 'bombSlot'
   | 'smokeGrenade'
   | 'flashGrenade'
   | 'heGrenade'
   | 'incendiaryGrenade'
+  | 'decoyGrenade'
   | 'dropWeapon'
   | 'inspectWeapon'
   | 'buyMenu'
+  | 'autoBuy'
+  | 'rebuy'
+  | 'chooseTeam'
   | 'scoreboard'
   | 'voicePushToTalk'
+  | 'allChat'
+  | 'teamChat'
+  | 'radioCommand'
+  | 'playerPing'
+  | 'followRecoilToggle'
+  | 'showImpactsToggle'
   | 'consoleToggle'
   | 'cullingDebugToggle';
 
@@ -99,6 +113,16 @@ export interface VideoSettings {
    * driver bug.
    */
   rendererOverride: 'Auto' | 'WebGL2' | 'Compatibility2D';
+  /** CS:GO Source-1 Classic high-FPS graphics pipeline (matte/diffuse lighting, crisp silhouettes, zero PBR bloat). */
+  csgoClassicGraphics: boolean;
+  /** CS:GO Shader Detail Mode for low-end and mid-end PC optimization. */
+  shaderDetailMode: 'CSGO_Fast_Lambert' | 'CSGO_Classic_Phong' | 'Standard_PBR';
+  /** Aspect ratio scaling mode (including classic CS:GO 4:3 Stretched). */
+  aspectRatioMode: '16:9_Native' | '4:3_Stretched' | '16:10_Stretched';
+  /** CS:GO Multicore Rendering pipeline toggle. */
+  multicoreRendering: boolean;
+  /** Show CS2 Sub-Tick Client (Red) & Server (Blue) bullet impact markers (sv_showimpacts). */
+  subTickShowImpacts: boolean;
 }
 
 export interface MouseSettings {
@@ -131,6 +155,7 @@ export interface CrosshairSettings {
   dynamicMovement: boolean;
   dynamicFiring: boolean;
   recoilFeedback: boolean;
+  followRecoil: boolean;
 }
 
 export interface AudioSettings {
@@ -199,19 +224,31 @@ export const DEFAULT_KEYBINDS: Record<BindableAction, string> = {
   altFire: 'Mouse2',
   reload: 'KeyR',
   interact: 'KeyE',
+  lastWeaponUsed: 'KeyQ',
   primaryWeapon: 'Digit1',
   secondaryWeapon: 'Digit2',
   meleeWeapon: 'Digit3',
   grenadeCycle: 'Digit4',
+  bombSlot: 'Digit5',
   smokeGrenade: 'KeyX',
   flashGrenade: 'KeyC',
   heGrenade: 'KeyV',
   incendiaryGrenade: 'KeyZ',
+  decoyGrenade: 'Digit9',
   dropWeapon: 'KeyG',
   inspectWeapon: 'KeyF',
   buyMenu: 'KeyB',
+  autoBuy: 'F1',
+  rebuy: 'F2',
+  chooseTeam: 'KeyM',
   scoreboard: 'Tab',
   voicePushToTalk: 'KeyK',
+  allChat: 'KeyY',
+  teamChat: 'KeyU',
+  radioCommand: 'KeyZ',
+  playerPing: 'Mouse3',
+  followRecoilToggle: 'F5',
+  showImpactsToggle: 'F6',
   consoleToggle: 'Backquote',
   cullingDebugToggle: 'F3'
 };
@@ -259,7 +296,12 @@ export const DEFAULT_VIDEO_SETTINGS: VideoSettings = {
   headBob: false,
   dynamicResolution: true,
   performanceMode: 'Balanced',
-  rendererOverride: 'Auto'
+  rendererOverride: 'Auto',
+  csgoClassicGraphics: true,
+  shaderDetailMode: 'CSGO_Fast_Lambert',
+  aspectRatioMode: '16:9_Native',
+  multicoreRendering: true,
+  subTickShowImpacts: false
 };
 
 export const DEFAULT_MOUSE_SETTINGS: MouseSettings = {
@@ -291,7 +333,8 @@ export const DEFAULT_CROSSHAIR_SETTINGS: CrosshairSettings = {
   centerDotSize: 2,
   dynamicMovement: false,
   dynamicFiring: true,
-  recoilFeedback: false
+  recoilFeedback: false,
+  followRecoil: false
 };
 
 export const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
@@ -550,8 +593,8 @@ export const useSettingsStore = create<SettingsStoreState>((set, get) => ({
         nextVideo = {
           ...DEFAULT_VIDEO_SETTINGS,
           preset: 'LOW_END_PC',
-          renderScale: 0.75,
-          fpsCapPreset: '144',
+          renderScale: 0.70,
+          fpsCapPreset: '240',
           objectVisibilityDistance: 'Near',
           textureQuality: 'Low',
           modelQuality: 'Low',
@@ -560,11 +603,41 @@ export const useSettingsStore = create<SettingsStoreState>((set, get) => ({
           lightingQuality: 'Low',
           effectsQuality: 'Low',
           particleQuality: 'Low',
-          particleLimit: 30,
+          particleLimit: 20,
           ambientOcclusion: false,
           reflections: 'Off',
           postProcessing: false,
-          antiAliasing: 'Off'
+          antiAliasing: 'Off',
+          csgoClassicGraphics: true,
+          shaderDetailMode: 'CSGO_Fast_Lambert',
+          multicoreRendering: true,
+          dynamicResolution: true,
+          performanceMode: 'Maximum'
+        };
+      } else if (preset === 'MID_END_PC' || preset === 'CSGO_CLASSIC') {
+        nextVideo = {
+          ...DEFAULT_VIDEO_SETTINGS,
+          preset,
+          renderScale: 0.9,
+          fpsCapPreset: '360',
+          objectVisibilityDistance: 'Medium',
+          textureQuality: 'Medium',
+          modelQuality: 'Medium',
+          shadowQuality: 'Low',
+          shadowDistance: 35,
+          lightingQuality: 'Medium',
+          effectsQuality: 'Low',
+          particleQuality: 'Low',
+          particleLimit: 45,
+          ambientOcclusion: false,
+          reflections: 'Off',
+          postProcessing: false,
+          antiAliasing: 'FXAA',
+          csgoClassicGraphics: true,
+          shaderDetailMode: 'CSGO_Classic_Phong',
+          multicoreRendering: true,
+          dynamicResolution: true,
+          performanceMode: 'Balanced'
         };
       } else if (preset === 'STREAMING') {
         nextVideo = {

@@ -7,6 +7,7 @@ import {
   PerformancePresetId
 } from '../../game/settings/settingsStore';
 import { WEAPON_SPECS } from '../../shared/weapons';
+import { useVacNetStore, OFFICIAL_DISCORD_INVITE_URL } from '../../shared/vacnet';
 
 interface CommandConsoleProps {
   onClose: () => void;
@@ -34,6 +35,17 @@ const HELP_TEXT = [
   '  cl_crosshair_thickness <1-8>',
   '  cl_crosshair_dot <0|1>',
   '  cl_crosshair_outline <0|1>',
+  '  cl_crosshair_recoil <0|1>     — CS2 Follow Recoil crosshair toggle',
+  '  sv_showimpacts <0|1>          — CS2 Sub-Tick client/server impact boxes',
+  '  csgo_graphics <0|1>           — CS:GO Source-1 Classic high-FPS graphics pipeline',
+  '  fps_lowend                    — Apply Low-End PC optimization (CS:GO Fast Lambert, 240+ FPS)',
+  '  fps_midend                    — Apply Mid-End PC optimization (CS:GO Classic Phong, 360+ FPS)',
+  '  vacnet_status                 — Print VacNet 3.0 & VAC Live HWID/IP/SteamID & neural state',
+  '  vaclive_ban [reason]          — Trigger 1-Day (24h) VAC Live Cooldown + Discord Webhook',
+  '  vaclive_permaban              — Verify Cheating -> Permanent VAC Ban + Discord Webhook',
+  '  vaclive_unban                 — Verify Not Cheating -> Immediate Unban + Discord Webhook',
+  '  vaclive_timeout               — Simulate 24h No-Verify -> Auto-Unban + Still Suspicious Webhook',
+  '  switch_account <name>         — Switch account (auto-VAC-bans on matching HWID/IP if banned)',
   '  cl_showfps <off|minimal|full> — telemetry overlay level',
   '  cl_culling_debug <0|1>        — occlusion debug visualization',
   '  preset <competitive|balanced|quality|ultra|low_end_pc|high_end_pc|streaming|practice>',
@@ -217,6 +229,78 @@ export const CommandConsole: React.FC<CommandConsoleProps> = ({ onClose }) => {
         settings.updateCrosshair({ outline: boolArg() });
         print(`[OK] cl_crosshair_outline = ${boolArg() ? 1 : 0}`);
         break;
+
+      case 'cl_crosshair_recoil':
+        settings.updateCrosshair({ followRecoil: boolArg() });
+        print(`[OK] cl_crosshair_recoil (CS2 Follow Recoil) = ${boolArg() ? 1 : 0}`);
+        break;
+
+      case 'sv_showimpacts':
+        settings.updateVideo({ subTickShowImpacts: boolArg() });
+        print(`[OK] sv_showimpacts (Sub-Tick Client/Server Impact Boxes) = ${boolArg() ? 1 : 0}`);
+        break;
+
+      case 'csgo_graphics':
+        settings.updateVideo({ csgoClassicGraphics: boolArg() });
+        print(`[OK] CS:GO Source-1 Classic Graphics = ${boolArg() ? 'ENABLED' : 'DISABLED'}`);
+        break;
+
+      case 'fps_lowend':
+        settings.applyPreset('LOW_END_PC');
+        print('[OK] Applied LOW_END_PC optimization (CS:GO Fast Lambert shaders, 70% scale, 240 FPS cap)');
+        break;
+
+      case 'fps_midend':
+        settings.applyPreset('MID_END_PC');
+        print('[OK] Applied MID_END_PC optimization (CS:GO Classic Phong shaders, 90% scale, 360 FPS cap)');
+        break;
+
+      case 'vacnet_status': {
+        const vn = useVacNetStore.getState();
+        const a = vn.currentAccount;
+        print(
+          `[VACNET 3.0 // VAC LIVE] Account=${a.accountName} | SteamID=${a.steamId} | UniqueID=${a.uniqueId} | HWID=${a.hwid} | IP=${a.ipAddress} | Created=${a.accountCreatedAt} | Status=${a.banStatus} | Gen=v3.${vn.neuralModel.generation} | Discord=${OFFICIAL_DISCORD_INVITE_URL}`
+        );
+        break;
+      }
+
+      case 'vaclive_ban': {
+        const reason = args.join(' ') || 'VacNet 3.0 Console Trigger — Irregular Sub-Tick Aim/Spin Anomaly';
+        const rec = useVacNetStore.getState().triggerVacLiveBan(reason);
+        print(
+          `[VAC LIVE] 1-DAY (24H) COOLDOWN ISSUED on ${rec.accountName} (${rec.steamId}) | HWID=${rec.hwid} | IP=${rec.ipAddress} | Bold Discord Webhook sent!`
+        );
+        break;
+      }
+
+      case 'vaclive_permaban': {
+        useVacNetStore.getState().verifyPlayerCheatingPermanent();
+        print('[VAC LIVE] Verified CHEATING -> Upgraded to PERMANENT VAC BAN on Account + HWID + IP & notified Discord Webhook.');
+        break;
+      }
+
+      case 'vaclive_unban': {
+        useVacNetStore.getState().verifyPlayerNotCheatingUnban();
+        print('[VAC LIVE] Verified NOT CHEATING -> IMMEDIATELY UNBANNED Account + HWID + IP & notified Discord Webhook.');
+        break;
+      }
+
+      case 'vaclive_timeout': {
+        useVacNetStore.getState().checkAndProcessCooldownTimeout(true);
+        print('[VAC LIVE] 24H Cooldown Expired without staff verification -> IMMEDIATELY UNBANNED, but reported as STILL SUSPICIOUS in Discord Webhook.');
+        break;
+      }
+
+      case 'switch_account': {
+        const name = args.join('_') || `Alt_${Math.floor(Math.random() * 900 + 100)}`;
+        const res = useVacNetStore.getState().switchOrCreateAccount(name);
+        print(
+          res.autoBannedByHwidIp
+            ? `[VAC LIVE EVASION DETECTED] Switched to ${res.account.accountName} (${res.account.steamId}) -> IMMEDIATELY VAC BANNED due to matching HWID (${res.account.hwid}) / IP (${res.account.ipAddress})!`
+            : `[VACNET] Switched active account to ${res.account.accountName} (${res.account.steamId}).`
+        );
+        break;
+      }
 
       case 'cl_showfps': {
         const map: Record<string, string> = { off: 'OFF', minimal: 'MINIMAL', full: 'FULL' };

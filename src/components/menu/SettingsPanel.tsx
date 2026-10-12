@@ -38,33 +38,45 @@ import { soundEngine } from '../../game/audio/soundEngine';
 import { RegionId } from '../../shared/types';
 
 const ACTION_LABELS: Record<BindableAction, string> = {
-  forward: 'Move Forward',
-  backward: 'Move Backward',
-  left: 'Strafe Left',
-  right: 'Strafe Right',
-  jump: 'Jump / Bhop',
-  jumpAlt: 'Jump (Alternate — Mouse Wheel)',
-  crouch: 'Crouch / Duck',
-  walk: 'Walk (Silent)',
-  fire: 'Primary Fire',
-  altFire: 'Secondary Fire / Scope',
-  reload: 'Reload Weapon',
-  interact: 'Interact / Plant / Defuse',
-  primaryWeapon: 'Primary Weapon',
-  secondaryWeapon: 'Secondary Weapon',
-  meleeWeapon: 'Melee Weapon',
-  grenadeCycle: 'Cycle Grenades',
-  smokeGrenade: 'Quick Smoke Grenade',
-  flashGrenade: 'Quick Flash Grenade',
-  heGrenade: 'Quick HE Grenade',
-  incendiaryGrenade: 'Quick Incendiary',
-  dropWeapon: 'Drop Weapon',
-  inspectWeapon: 'Inspect Weapon',
-  buyMenu: 'Buy Menu',
-  scoreboard: 'Scoreboard',
-  voicePushToTalk: 'Voice Push-to-Talk',
-  consoleToggle: 'Developer Console',
-  cullingDebugToggle: 'Occlusion Debug Overlay'
+  forward: 'Move Forward (W)',
+  backward: 'Move Backward (S)',
+  left: 'Move Left / Strafe Left (A)',
+  right: 'Move Right / Strafe Right (D)',
+  jump: 'Jump (Space)',
+  jumpAlt: 'Jump Alternate / Bhop (MWHEELDOWN)',
+  crouch: 'Duck / Crouch (Ctrl)',
+  walk: 'Walk / Silent Step (Shift)',
+  fire: 'Fire Weapon (MOUSE1)',
+  altFire: 'Secondary Fire / Scope / Silencer (MOUSE2)',
+  reload: 'Reload Weapon (R)',
+  interact: 'Use / Plant / Defuse / Pick Up (E)',
+  lastWeaponUsed: 'Last Weapon Used / Quick Switch (Q)',
+  primaryWeapon: 'Primary Weapon (Slot 1)',
+  secondaryWeapon: 'Secondary Weapon / Pistol (Slot 2)',
+  meleeWeapon: 'Melee Weapons / Knife (Slot 3)',
+  grenadeCycle: 'Cycle Grenades (Slot 4)',
+  bombSlot: 'Explosives & Traps / C4 Bomb (Slot 5)',
+  smokeGrenade: 'Smoke Grenade (X / Slot 8)',
+  flashGrenade: 'Flashbang (C / Slot 7)',
+  heGrenade: 'HE Frag Grenade (V / Slot 6)',
+  incendiaryGrenade: 'Molotov / Incendiary Grenade (Z / Slot 0)',
+  decoyGrenade: 'Decoy Grenade (Slot 9)',
+  dropWeapon: 'Drop Weapon (G)',
+  inspectWeapon: 'Inspect Weapon (F)',
+  buyMenu: 'Buy Menu (B)',
+  autoBuy: 'Autobuy Loadout (F1)',
+  rebuy: 'Rebuy Previous Round (F2)',
+  chooseTeam: 'Select Team CT / T (M)',
+  scoreboard: 'Scoreboard (Tab)',
+  voicePushToTalk: 'Use Mic / Push-to-Talk (K)',
+  allChat: 'Chat Message — All (Y)',
+  teamChat: 'Chat Message — Team (U)',
+  radioCommand: 'Radio Command Message (Z)',
+  playerPing: 'Player Tactical Ping (MOUSE3)',
+  followRecoilToggle: 'Toggle Follow Recoil Crosshair (F5)',
+  showImpactsToggle: 'Toggle Sub-Tick Impact Boxes sv_showimpacts (F6)',
+  consoleToggle: 'Toggle Developer Console (` / ~)',
+  cullingDebugToggle: 'Occlusion & Culling Debug Overlay (F3)'
 };
 
 type SettingsCategory =
@@ -626,14 +638,14 @@ export const SettingsPanel: React.FC = () => {
               <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
                 {(
                   [
-                    ['COMPETITIVE', 'Competitive', 'Max FPS · Min post-processing · Minimal particles'],
+                    ['COMPETITIVE', 'Competitive Pro', 'Max FPS · Min post-processing · Minimal particles'],
+                    ['LOW_END_PC', 'Low-End PC (240+ FPS)', 'CS:GO Fast Lambert Shaders · 70% Scale · Zero Shadows (Intel HD / iGPU)'],
+                    ['MID_END_PC', 'Mid-End PC (360+ FPS)', 'CS:GO Classic Phong · 90% Scale · Crisp Low Shadows (GTX 1060 / RX 580)'],
+                    ['CSGO_CLASSIC', 'CS:GO Source-1 Graphics', 'Authentic CS:GO lighting, matte surfaces & high-visibility agents'],
                     ['BALANCED', 'Balanced', 'Good visual quality with strong frame pacing'],
                     ['QUALITY', 'Quality', 'Higher lighting, shadows, and effects'],
                     ['ULTRA', 'Ultra', 'Maximum visual fidelity'],
-                    ['LOW_END_PC', 'Low-End PC', 'Aggressive downscale for integrated GPUs'],
-                    ['HIGH_END_PC', 'High-End PC', 'Unlimited budget visuals'],
-                    ['STREAMING', 'Streaming', 'Stable pacing with presentable output'],
-                    ['PRACTICE', 'Practice', 'Full telemetry + max visibility for training']
+                    ['STREAMING', 'Streaming', 'Stable pacing with presentable output']
                   ] as Array<[PerformancePresetId, string, string]>
                 ).map(([id, label, desc]) => (
                   <button

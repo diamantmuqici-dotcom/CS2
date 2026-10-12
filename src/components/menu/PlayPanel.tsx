@@ -23,6 +23,12 @@ import { Panel, Button, StatChip, Tabs } from '../ui/primitives';
 import { soundEngine } from '../../game/audio/soundEngine';
 import { matchmakingService } from '../../game/matchmaking/MatchmakingService';
 import type { QueueStatus } from '../../game/matchmaking/matchmakingTypes';
+import {
+  useVacNetStore,
+  isAccountCurrentlyBanned,
+  formatRemainingCooldown,
+  OFFICIAL_DISCORD_INVITE_URL
+} from '../../shared/vacnet';
 
 const MODE_ICONS: Record<GameModeId, React.ReactNode> = {
   Competitive: <Swords className="h-5 w-5" />,
@@ -64,8 +70,11 @@ export const PlayPanel: React.FC<{ onLaunch: () => void }> = ({ onLaunch }) => {
     banPremierMap,
     customConfig,
     updateCustomConfig,
-    workshopMaps
+    workshopMaps,
+    setActiveTab
   } = useGamePlatformStore();
+  const currentVacAccount = useVacNetStore((s) => s.currentAccount);
+  const isVacBanned = isAccountCurrentlyBanned(currentVacAccount);
 
   const [subTab, setSubTab] = useState<'MODES' | 'MAPS' | 'REGIONS' | 'CUSTOM'>('MODES');
   const [queueStatus, setQueueStatus] = useState<QueueStatus>(matchmakingService.getStatus());
@@ -122,6 +131,11 @@ export const PlayPanel: React.FC<{ onLaunch: () => void }> = ({ onLaunch }) => {
     cancelQueue();
   };
   const handleStartQueue = () => {
+    if (isAccountCurrentlyBanned(useVacNetStore.getState().currentAccount)) {
+      soundEngine.playUiSound('error');
+      setActiveTab('VACNET');
+      return;
+    }
     startQueue();
     if (selectedMode !== 'Premier') {
       matchmakingService.enqueue({

@@ -14,6 +14,9 @@ interface BuyMenuOverlayProps {
   ownedWeapons: string[];
   ownedGrenades: string[];
   onBuyWeapon: (weaponId: string) => void;
+  onRefundWeapon?: (weaponId: string) => void;
+  onAutoBuy?: () => void;
+  onRebuy?: () => void;
   onBuyEquipment: (equipId: 'kevlar_vest' | 'kevlar_helmet' | 'defuse_kit') => void;
   onApplyPreset: (preset: BuyPreset) => void;
   onClose: () => void;
@@ -30,6 +33,9 @@ export const BuyMenuOverlay: React.FC<BuyMenuOverlayProps> = ({
   ownedWeapons,
   ownedGrenades,
   onBuyWeapon,
+  onRefundWeapon,
+  onAutoBuy,
+  onRebuy,
   onBuyEquipment,
   onApplyPreset,
   onClose
@@ -120,12 +126,30 @@ export const BuyMenuOverlay: React.FC<BuyMenuOverlayProps> = ({
               {team} ARMORY
             </div>
             <div>
-              <h2 className="text-lg font-extrabold tracking-wide text-white">TACTICAL REQUISITION MATRIX</h2>
-              <p className="text-xs text-slate-400">{recommendation}</p>
+              <h2 className="text-lg font-extrabold tracking-wide text-white">
+                CS2 15-WEAPON LOADOUT & BUY GRID (RIGHT-CLICK TO REFUND)
+              </h2>
+              <p className="text-xs font-bold text-slate-300">{recommendation}</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-6">
+          <div className="flex flex-wrap items-center gap-3">
+            {onAutoBuy && (
+              <button
+                onClick={onAutoBuy}
+                className="rounded-lg border border-amber-500/60 bg-amber-950/50 px-3 py-2 text-xs font-black uppercase text-amber-300 hover:bg-amber-900/60"
+              >
+                AUTOBUY [F1]
+              </button>
+            )}
+            {onRebuy && (
+              <button
+                onClick={onRebuy}
+                className="rounded-lg border border-cyan-500/60 bg-cyan-950/50 px-3 py-2 text-xs font-black uppercase text-cyan-300 hover:bg-cyan-900/60"
+              >
+                REBUY [F2]
+              </button>
+            )}
             <div className="flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-950/40 px-4 py-2">
               <DollarSign className="h-5 w-5 text-emerald-400" />
               <div>
@@ -175,7 +199,19 @@ export const BuyMenuOverlay: React.FC<BuyMenuOverlayProps> = ({
                     <button
                       key={w.id}
                       onMouseEnter={() => setHoveredWeapon(w)}
-                      onClick={() => onBuyWeapon(w.id)}
+                      onClick={() => {
+                        if (isOwned && onRefundWeapon && w.price > 0) {
+                          onRefundWeapon(w.id);
+                        } else {
+                          onBuyWeapon(w.id);
+                        }
+                      }}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        if (isOwned && onRefundWeapon && w.price > 0) {
+                          onRefundWeapon(w.id);
+                        }
+                      }}
                       disabled={!canAfford && !isOwned}
                       className={`group flex flex-col justify-between rounded-lg border p-4 text-left transition ${
                         isOwned
@@ -194,7 +230,7 @@ export const BuyMenuOverlay: React.FC<BuyMenuOverlayProps> = ({
                         </div>
                         {isOwned ? (
                           <span className="flex items-center gap-1 rounded bg-cyan-500/20 px-2 py-0.5 text-[11px] font-bold text-cyan-300">
-                            <Check className="h-3.5 w-3.5" /> EQUIPPED
+                            <Check className="h-3.5 w-3.5" /> {w.price > 0 && onRefundWeapon ? `REFUND (+$${w.price})` : 'EQUIPPED'}
                           </span>
                         ) : (
                           <span

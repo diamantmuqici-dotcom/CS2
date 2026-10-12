@@ -31,6 +31,9 @@ import { DiagnosticsPanel } from './components/ui/DiagnosticsPanel';
 import { DebugOverlay, isDebugEnabled } from './components/ui/DebugOverlay';
 import { LocalLinkButton } from './components/ui/LocalLinkButton';
 import { AdminPanel } from './admin/AdminPanel';
+import { VacNetPanel } from './components/menu/VacNetPanel';
+import { VacLiveOverlay } from './components/game/VacLiveOverlay';
+import { useVacNetStore, isAccountCurrentlyBanned, OFFICIAL_DISCORD_INVITE_URL } from './shared/vacnet';
 
 // Code splitting: heavy 3D-dependent panels and the live game view are only
 // fetched when the player actually navigates to them. Three.js stays out of the
@@ -63,6 +66,7 @@ type AppPhase = 'MENU' | 'IN_GAME' | 'POST_MATCH';
 
 const NAV_ITEMS: Array<{ id: MainMenuTab; label: string; icon: React.ReactNode }> = [
   { id: 'PLAY', label: 'PLAY', icon: <Swords className="h-4 w-4" /> },
+  { id: 'VACNET', label: 'VACNET / VAC LIVE', icon: <Shield className="h-4 w-4 text-emerald-400" /> },
   { id: 'WORKSHOP', label: 'WORKSHOP', icon: <Blocks className="h-4 w-4" /> },
   { id: 'COMMUNITY', label: 'COMMUNITY', icon: <Users className="h-4 w-4" /> },
   { id: 'REPLAYS', label: 'WATCH', icon: <Video className="h-4 w-4" /> },
@@ -99,6 +103,15 @@ const AppShell: React.FC = () => {
   const video = useSettingsStore((s) => s.video);
   const gameplay = useSettingsStore((s) => s.gameplay);
   const updateVideo = useSettingsStore((s) => s.updateVideo);
+  const applyPreset = useSettingsStore((s) => s.applyPreset);
+  const currentVacAccount = useVacNetStore((s) => s.currentAccount);
+  const syncIdentityFromServer = useVacNetStore((s) => s.syncIdentityFromServer);
+  const checkAndProcessCooldownTimeout = useVacNetStore((s) => s.checkAndProcessCooldownTimeout);
+
+  useEffect(() => {
+    void syncIdentityFromServer();
+    checkAndProcessCooldownTimeout(false);
+  }, [syncIdentityFromServer, checkAndProcessCooldownTimeout]);
   // All GPU/browser detection goes through one manager, never scattered probes.
   const renderer = useMemo(() => rendererManager.getSelection(), []);
   const caps = renderer.capabilities;
@@ -169,12 +182,21 @@ const AppShell: React.FC = () => {
 
   const launchMatch = useCallback(
     (modeOverride?: Parameters<typeof startMatch>[0], mapOverride?: string) => {
+      checkAndProcessCooldownTimeout(false);
+      const acct = useVacNetStore.getState().currentAccount;
+      if (isAccountCurrentlyBanned(acct)) {
+        appendConsoleLog(
+          `[VACNET // VAC LIVE] Match launch blocked: ${acct.accountName} (${acct.steamId}) is under ${acct.banStatus} on HWID ${acct.hwid} / IP ${acct.ipAddress}. Open a ticket at ${OFFICIAL_DISCORD_INVITE_URL}`
+        );
+        setActiveTab('VACNET');
+        return;
+      }
       const mode = modeOverride || selectedMode;
       startMatch(mode, mapOverride);
       appendConsoleLog(`[MATCH] Launching ${mode} on ${mapOverride || useGamePlatformStore.getState().selectedMapId}`);
       setPhase('IN_GAME');
     },
-    [selectedMode, startMatch, appendConsoleLog]
+    [selectedMode, startMatch, appendConsoleLog, checkAndProcessCooldownTimeout, setActiveTab]
   );
 
   // LOCAL LINK: connect to a local/LAN server, then drop straight into a match.
@@ -346,19 +368,58 @@ const AppShell: React.FC = () => {
           <div className="mx-auto flex max-w-[1800px] flex-wrap items-center justify-between gap-3 px-5 py-3">
             <div className="flex items-center gap-3">
               <div className="csgo-brand-mark" aria-hidden="true">
-                <span>CS</span><b>GO</b>
+                <span>CS</span><b>2</b>
               </div>
               <div>
                 <div className="text-sm font-black uppercase tracking-[0.28em] text-white">
-                  CSGO <span className="text-tac-amber">// LIVE OPS</span>
+                  COUNTER-STRIKE 2 <span className="text-tac-amber">// VANGUARD SUB-TICK</span>
                 </div>
-                <div className="font-mono text-[9px] uppercase tracking-widest text-slate-500">
-                  Original browser tactical FPS · build 01.24
+                <div className="font-mono text-[9px] font-bold uppercase tracking-widest text-slate-400">
+                  CS:GO Classic Graphics · VacNet 3.0 Anti-Cheat · Low/Mid-End PC Optimized
                 </div>
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2.5">
+              {/* 1-Click Low-End & Mid-End PC Optimizer Buttons */}
+              <button
+                onClick={() => applyPreset('LOW_END_PC')}
+                className={`rounded border px-2.5 py-1 font-mono text-[10px] font-black uppercase transition ${
+                  video.preset === 'LOW_END_PC'
+                    ? 'border-emerald-400 bg-emerald-950/60 text-emerald-300'
+                    : 'border-tac-border bg-tac-panel2 text-slate-300 hover:border-emerald-500'
+                }`}
+                title="Optimize for Low-End PCs (CS:GO Fast Lambert Shaders, 70% Scale, 240+ FPS)"
+              >
+                ⚡ LOW-END PC (240+ FPS)
+              </button>
+              <button
+                onClick={() => applyPreset('MID_END_PC')}
+                className={`rounded border px-2.5 py-1 font-mono text-[10px] font-black uppercase transition ${
+                  video.preset === 'MID_END_PC'
+                    ? 'border-cyan-400 bg-cyan-950/60 text-cyan-300'
+                    : 'border-tac-border bg-tac-panel2 text-slate-300 hover:border-cyan-500'
+                }`}
+                title="Optimize for Mid-End PCs (CS:GO Classic Phong Shaders, 90% Scale, 360+ FPS)"
+              >
+                🚀 MID-END PC (360+ FPS)
+              </button>
+
+              {/* VacNet 3.0 / VAC Live Status Pill */}
+              <button
+                onClick={() => setActiveTab('VACNET')}
+                className={`flex items-center gap-1.5 rounded border px-2.5 py-1 font-mono text-[10px] font-black uppercase transition ${
+                  isAccountCurrentlyBanned(currentVacAccount)
+                    ? 'border-red-500 bg-red-950/70 text-red-200 animate-pulse'
+                    : 'border-emerald-600/70 bg-emerald-950/40 text-emerald-300 hover:bg-emerald-900/50'
+                }`}
+              >
+                <Shield className="h-3.5 w-3.5" />
+                {isAccountCurrentlyBanned(currentVacAccount)
+                  ? `VAC LIVE BANNED (${currentVacAccount.accountName})`
+                  : `VACNET 3.0 ACTIVE (${currentVacAccount.steamId})`}
+              </button>
+
               {/* Zero-ping local session launcher — a round map plate, pinned
                   to the top bar so it is reachable from every screen. */}
               <LocalLinkButton onLaunch={handleLocalLink} />
@@ -545,6 +606,7 @@ const AppShell: React.FC = () => {
           <main className="min-w-0 flex-1">
             <Suspense fallback={<PanelSpinner label="LOADING MODULE…" />}>
               {activeTab === 'PLAY' && <PlayPanel onLaunch={() => launchMatch()} />}
+              {activeTab === 'VACNET' && <VacNetPanel />}
               {activeTab === 'PROFILE' && <ProfilePanel />}
               {activeTab === 'WORKSHOP' && <WorkshopPanel onTestMap={(id) => launchMatch('Practice', id)} />}
               {activeTab === 'MAP_EDITOR' && <MapEditorPanel onTestMap={(id) => launchMatch('Practice', id)} />}
@@ -556,6 +618,10 @@ const AppShell: React.FC = () => {
             </Suspense>
           </main>
         </div>
+
+        <VacLiveOverlay
+          onOpenVacNetTab={() => setActiveTab('VACNET')}
+        />
 
         <footer className="relative z-10 border-t border-tac-border bg-tac-panel/60 px-5 py-3">
           <div className="mx-auto flex max-w-[1800px] flex-wrap items-center justify-between gap-2 font-mono text-[9px] uppercase tracking-widest text-slate-600">
